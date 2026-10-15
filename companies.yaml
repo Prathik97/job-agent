@@ -1,0 +1,11 @@
+# Companies to scout. Slug = the id in the public job board URL.
+# Entry is either a bare slug or {slug, name}.
+greenhouse:
+  - {slug: stripe, name: Stripe}
+  - {slug: groww, name: Groww}
+lever:
+  - {slug: cred, name: CRED}
+  - {slug: meesho, name: Meesho}
+ashby:
+  - {slug: ramp, name: Ramp}
+  - {slug: notion, name: Notion}
