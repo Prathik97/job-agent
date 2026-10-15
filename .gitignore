@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+credentials.json
+service_account.json
+
+# Personal data, never commit
+profile.yaml
+master_profile.json
+data/
+output/

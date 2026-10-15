@@ -1,0 +1,56 @@
+{
+  "identity": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "+91-0000000000",
+    "linkedin": "linkedin.com/in/janedoe",
+    "portfolio": "janedoe.dev"
+  },
+  "headline_variants": {
+    "default": "Product Manager with 6 years building B2B SaaS products",
+    "saas": "Product Manager with 6 years scaling B2B SaaS platforms",
+    "d2c": "Product Manager with 6 years building consumer subscription apps"
+  },
+  "summary_facts": [
+    "6 years of product experience across B2B SaaS and consumer apps",
+    "Owns discovery, PRDs and release end to end"
+  ],
+  "skills": {
+    "product_and_design": ["Roadmapping", "Prioritisation", "A/B testing", "PRDs"],
+    "growth": ["Funnel Analysis", "Activation", "Retention"],
+    "leadership": ["Stakeholder Management", "Cross-functional Execution"],
+    "tools": ["Jira", "Figma", "Mixpanel"]
+  },
+  "experience": [
+    {
+      "id": "company_a",
+      "company": "Example Company",
+      "title": "Senior Product Manager",
+      "location": "Bengaluru",
+      "start": "January 2022",
+      "end": "Present",
+      "context": "One line about the company and your scope.",
+      "achievements": [
+        {
+          "id": "ca_onboarding",
+          "tags": ["growth", "onboarding", "activation"],
+          "text": "Redesigned onboarding, lifting activation by 20%.",
+          "metrics": ["+20% activation"]
+        }
+      ]
+    }
+  ],
+  "education": {
+    "institution": "Example University",
+    "degree": "Bachelor of Engineering",
+    "location": "Bengaluru",
+    "start": "August 2014",
+    "end": "May 2018"
+  },
+  "certifications": ["Example Certification"],
+  "guardrails": {
+    "never_change": ["name", "company names", "job titles", "dates", "metrics", "education"],
+    "never_invent": ["tools not in skills.tools", "metrics not in achievements", "team sizes", "revenue figures"],
+    "max_pages": 2
+  }
+}

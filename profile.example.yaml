@@ -1,0 +1,130 @@
+# profile.example.yaml
+# Copy to profile.yaml and edit. profile.yaml is gitignored so your preferences stay private.
+# Every agent (Scout, Screener, Tailor) reads profile.yaml.
+
+candidate:
+  name: Your Name
+  years_experience: 7
+  current_status: available   # replace with your own status
+
+# ---------------------------------------------------------------
+# TITLES
+# Tier A: apply by default. Tier B: apply only if the company is small or the JD fits your 0 to 1 work.
+# Tier C: stretch, only at companies under ~200 people, otherwise the experience bar is usually 12+ years.
+# ---------------------------------------------------------------
+titles:
+  tier_a:
+    - "Product Manager 2"
+    - "PM 2"
+    - "PM II"
+    - "Senior Product Manager"
+    - "Sr. Product Manager"
+    - "SPM"
+    - "Lead Product Manager"
+    - "Staff Product Manager"
+    - "AVP Product"
+    - "Associate Vice President Product"
+  tier_b:
+    - "Principal Product Manager"
+    - "Group Product Manager"
+    - "Head of Product Management"
+    - "Head of Product"
+  tier_c:
+    - "VP Product"
+    - "Vice President Product"
+    - "Director of Product"
+
+# Reject if the title contains any of these (not the same function)
+title_reject_keywords:
+  - "Project Manager"
+  - "Program Manager"
+  - "Product Marketing"
+  - "Product Owner (contract)"
+  - "Sales"
+  - "Account Manager"
+  - "Intern"
+  - "Associate Product Manager"
+  - "APM"
+
+# ---------------------------------------------------------------
+# EXPERIENCE
+# JD says "5+ years" -> pass. JD says "10+ years" -> flag as stretch, do not auto reject.
+# ---------------------------------------------------------------
+experience:
+  min_required_in_jd: 5
+  stretch_if_jd_requires_over: 9
+  hard_reject_if_jd_requires_over: 14
+
+# ---------------------------------------------------------------
+# LOCATION
+# Rule: Bengaluru (onsite or hybrid) OR fully remote that an India resident can take.
+# Many "remote" US jobs exclude India. The Screener must check for this.
+# ---------------------------------------------------------------
+location:
+  onsite_or_hybrid_cities:
+    - "Bengaluru"
+    - "Bangalore"
+  remote_allowed: true
+  remote_must_be_india_eligible: true
+  reject_if_text_contains:
+    - "US only"
+    - "United States only"
+    - "must be located in the US"
+    - "work authorization required"
+    - "EU only"
+    - "UK only"
+
+# ---------------------------------------------------------------
+# DOMAIN FIT (ordered by how strong your proof is)
+# ---------------------------------------------------------------
+domains_ranked:
+  - "B2B SaaS"
+  - "D2C / consumer subscription apps"
+  - "CRM and customer support platforms"
+  - "Supply chain, logistics, last mile"
+  - "HR tech, workforce, payroll"
+  - "Payments and billing"
+  - "Internal tools and operations platforms"
+
+# ---------------------------------------------------------------
+# DEAL BREAKERS
+# ---------------------------------------------------------------
+deal_breakers:
+  - "Commission only or unpaid"
+  - "Contract under 6 months"
+  - "Role is sales or marketing in disguise"
+  - "TODO: add your own"
+
+compensation:
+  floor_lpa_inr: null   # TODO: your minimum fixed CTC in LPA. Leave null and the Screener ignores comp.
+  note: "Used only as a signal. Many JDs do not publish pay."
+
+company_preferences:
+  stage: ["Series A", "Series B", "Series C", "Growth", "Public"]   # TODO: edit
+  avoid_companies: []   # TODO: add any you want excluded
+
+# ---------------------------------------------------------------
+# SCORING RUBRIC (total 100)
+# ---------------------------------------------------------------
+scoring:
+  weights:
+    role_and_title_fit: 25
+    domain_fit: 20
+    seniority_fit: 20
+    location_fit: 15
+    company_and_growth: 10
+    comp_signal: 10
+  thresholds:
+    shortlist_min_score: 70
+    tailor_resume_min_score: 75
+    top_pick_min_score: 85   # these get the Opus polish
+
+# ---------------------------------------------------------------
+# TAILORING RULES (non negotiable)
+# ---------------------------------------------------------------
+tailoring_rules:
+  - "Use only facts from master_profile.json. Never invent a metric, tool, or title."
+  - "Keep real job titles and dates exactly as in master_profile.json."
+  - "Reorder and select achievements by relevance. Rewrite wording to mirror the JD keywords only if the claim stays true."
+  - "Resume stays at 2 pages max."
+  - "Output the changes made so the user can review them."

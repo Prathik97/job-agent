@@ -1,0 +1,9 @@
+anthropic
+python-dotenv
+pyyaml
+pandas
+requests
+gspread
+google-auth
+python-telegram-bot
+pydantic
