@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import urlsplit
 
-from dashboard.data import build_state, snapshot_for
+from dashboard.data import build_state, filtered_snapshot_for, snapshot_for
+from dashboard.labels import LabelStore
 from dashboard.store import ApplicationsStore, StoreError
+from evaluate.metrics import compute, filtered_totals
 
 log = logging.getLogger("dashboard")
 BIND_HOST = "127.0.0.1"
@@ -41,6 +43,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.demo = demo
         self.token = token or secrets.token_urlsafe(32)
         self.store = ApplicationsStore(data_dir / "clean" / "applications.json")
+        self.labels = LabelStore(data_dir / "clean" / "labels.json")
         super().__init__((BIND_HOST, port), Handler)
 
     @property
@@ -109,11 +112,18 @@ class Handler(BaseHTTPRequestHandler):
         elif path in STATIC_FILES:
             name, ctype = STATIC_FILES[path]
             self._send(200, (STATIC / name).read_bytes(), ctype)
+        elif path == "/api/eval":
+            self._json(200, self._eval())
         elif path == "/api/state":
             self._json(200, {**build_state(self.server.data_dir, self.server.store),
-                             "demo": self.server.demo})
+                             "demo": self.server.demo, "labels": self.server.labels.load(),
+                             "eval": self._eval()})
         else:
             self._json(404, {"error": "not found"})
+
+    def _eval(self) -> dict:
+        state = build_state(self.server.data_dir, self.server.store)
+        return compute(self.server.labels.load(), filtered_totals(state["filtered_out"]))
 
     def do_POST(self) -> None:
         if not self._guard():
@@ -122,8 +132,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "bad origin"})
         if not hmac.compare_digest(self.headers.get("X-Dashboard-Token", ""), self.server.token):
             return self._json(403, {"error": "bad token"})
-        prefix = "/api/applications/"
         path = urlsplit(self.path).path
+        prefix = "/api/labels/" if path.startswith("/api/labels/") else "/api/applications/"
         if not path.startswith(prefix):
             return self._json(404, {"error": "not found"})
         body = self._read_body()
@@ -131,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         job_id = path[len(prefix):]
         try:
-            self._apply(job_id, body)
+            (self._label if prefix == "/api/labels/" else self._apply)(job_id, body)
         except StoreError as exc:
             self._json(400, {"error": str(exc)})
 
@@ -151,6 +161,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "body must be a JSON object"})
             return None
         return body
+
+    def _label(self, job_id: str, body: dict) -> None:
+        """Agent-side snapshot always comes from the server's own files, never from the client."""
+        scored = snapshot_for(self.server.data_dir, job_id)
+        if scored is not None:
+            kind, snap = "scored", {"score": scored["score"], "verdict": scored["verdict"]}
+        else:
+            reason = filtered_snapshot_for(self.server.data_dir, job_id)
+            if reason is None:
+                return self._json(404, {"error": "unknown job"})
+            kind, snap = "filtered", {"drop_reason": reason}
+        entry = self.server.labels.set(job_id, kind=kind, label=body.get("label"), snapshot=snap,
+                                       reason=body.get("reason"), note=body.get("note") or "")
+        self._json(200, {"id": job_id, "entry": entry})
 
     def _apply(self, job_id: str, body: dict) -> None:
         store = self.server.store

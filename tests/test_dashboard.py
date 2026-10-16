@@ -234,7 +234,10 @@ def test_no_external_resources_in_frontend():
         assert not re.findall(r"""(?:src|href)=["']https?://|@import|url\(https?:""", text)
         assert "XMLHttpRequest" not in text and "WebSocket" not in text
     js = (STATIC / "app.js").read_text()
-    assert set(re.findall(r'fetch\(([^,)]+)', js)) <= {'"/api/state"', '"/api/applications/" + encodeURIComponent(job.id'}
+    allowed = {'"/api/state"', '"/api/eval"', "path"}
+    assert set(re.findall(r'fetch\(([^,)]+)', js)) <= allowed
+    assert all(p in ('"/api/applications/" + encodeURIComponent(job.id)', '"/api/labels/" + encodeURIComponent(id)')
+               for p in re.findall(r'post\(("/api/[^,]+\))', js))
 
 
 @pytest.mark.parametrize("url,ok", [("https://a.com/x", True), ("http://a.com", True), ("javascript:alert(1)", False),

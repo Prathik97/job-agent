@@ -2,6 +2,7 @@
 // All job text is untrusted. It is only ever put into the page with textContent / createTextNode,
 // and URLs only become links if they are http or https.
 
+const REASONS = ["location", "seniority", "domain", "role type", "company", "compensation", "other"];
 const STATUSES = ["new", "shortlisted", "applied", "interview", "offer", "rejected", "withdrawn", "skipped"];
 const PIPELINE = ["applied", "interview", "offer", "rejected", "withdrawn"];
 const TOKEN = document.querySelector('meta[name="dashboard-token"]').content;
@@ -54,17 +55,26 @@ async function loadState() {
   data = await res.json();
 }
 
-async function save(job, body) {
-  const res = await fetch("/api/applications/" + encodeURIComponent(job.id), {
+async function post(path, body) {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN },
     body: JSON.stringify(body),
   });
   if (res.status === 403) { say("Session expired. Reload this page."); throw new Error("forbidden"); }
   if (!res.ok) { say("Save failed (" + res.status + ")"); throw new Error("save"); }
-  const entry = await res.json();
-  job.status = entry.status; job.applied_at = entry.applied_at; job.app_notes = entry.notes;
   say("");
+  return res.json();
+}
+
+async function saveLabel(id, body) {
+  const out = await post("/api/labels/" + encodeURIComponent(id), body);
+  if (out.entry) data.labels[id] = out.entry; else delete data.labels[id];
+}
+
+async function save(job, body) {
+  const entry = await post("/api/applications/" + encodeURIComponent(job.id), body);
+  job.status = entry.status; job.applied_at = entry.applied_at; job.app_notes = entry.notes;
   recount();
 }
 
@@ -139,7 +149,52 @@ const notesInput = r => {
 const sourceCell = r => [r.source || "—", ...r.also_listed_on.map(s => el("span", { class: "chip", text: "also " + s }))];
 const scoreCell = r => (r.score === null || r.score === undefined) ? "" : String(r.score);
 
+function reasonSelect(current, disabled) {
+  const sel = el("select", { "aria-label": "Reason category", disabled }, [el("option", { value: "", text: "reason (optional)" }),
+    ...REASONS.map(r => { const o = el("option", { value: r, text: r }); if (r === current) o.selected = true; return o; })]);
+  return sel;
+}
+
+const labelCell = r => {
+  const cur = data.labels[r.id] || {};
+  const lab = el("select", { "aria-label": "My label" }, [["", "— my label —"], ["yes", "yes (I would apply)"],
+    ["maybe", "maybe"], ["no", "no"]].map(([v, t]) => { const o = el("option", { value: v, text: t });
+      if (v === (cur.label || "")) o.selected = true; return o; }));
+  const reason = reasonSelect(cur.reason, !cur.label);
+  const note = el("input", { type: "text", placeholder: "note (optional)", value: cur.note || "", maxlength: 5000,
+    disabled: !cur.label, "aria-label": "Label note" });
+  const commit = async () => {
+    reason.disabled = note.disabled = !lab.value;
+    try { await saveLabel(r.id, { label: lab.value || null, reason: reason.value, note: note.value }); }
+    catch (e) { /* banner shows the error */ }
+  };
+  [lab, reason, note].forEach(c => c.addEventListener("change", commit));
+  return el("div", { class: "labelbox" }, lab, reason, note);
+};
+
+const keptCell = r => {
+  const cur = data.labels[r.id];
+  const box = el("div", { class: "labelbox" });
+  const draw = () => {
+    const now = data.labels[r.id];
+    const btn = el("button", { class: "btn" + (now ? " primary" : ""), text: now ? "Marked: should have been kept" : "Should have been kept",
+      onclick: async () => {
+        try { await saveLabel(r.id, now ? { label: null } : { label: "yes", reason: "" }); draw(); } catch (e) { /* banner */ }
+      } });
+    const reason = reasonSelect(now && now.reason, !now);
+    reason.addEventListener("change", async () => {
+      try { await saveLabel(r.id, { label: "yes", reason: reason.value, note: (data.labels[r.id] || {}).note || "" }); }
+      catch (e) { /* banner */ }
+    });
+    box.replaceChildren(btn, now ? reason : "");
+  };
+  draw();
+  return box;
+};
+
 const COLS = {
+  myLabel: { key: "my_label", label: "My label", sortable: false, value: r => (data.labels[r.id] || {}).label || "", render: labelCell },
+  kept: { key: "kept", label: "Keep?", sortable: false, value: () => "", render: keptCell },
   company: text("company", "Company"), title: text("title", "Title"), location: text("location", "Location"),
   source: { key: "source", label: "Source", value: r => r.source || "", render: sourceCell },
   score: { key: "score", label: "Score", num: true, value: r => r.score, render: scoreCell },
@@ -190,17 +245,17 @@ function renderAll() {
   const f = ui.filters.all;
   const uniq = k => [...new Set(data.jobs.map(r => r[k]).filter(Boolean))].sort();
   const cols = [COLS.company, COLS.title, COLS.location, COLS.source, COLS.tier, COLS.score, COLS.verdict,
-    COLS.status, COLS.notes, COLS.posted, COLS.open];
+    COLS.myLabel, COLS.status, COLS.notes, COLS.posted, COLS.open];
   const search = el("input", { type: "search", placeholder: "Search company, title, location", value: f.q,
     "aria-label": "Search" });
   const upd = () => draw();
   search.addEventListener("input", () => { f.q = search.value; upd(); });
   function draw() {
     const q = f.q.trim().toLowerCase();
-    const rows = data.jobs.filter(r => (!f.verdict || r.verdict === f.verdict) && (!f.status || r.status === f.status)
+    const rows = data.jobs.filter(r => !r.orphaned && (!f.verdict || r.verdict === f.verdict) && (!f.status || r.status === f.status)
       && (!f.source || r.source === f.source) && (!f.tier || r.tier === f.tier)
       && (!q || [r.company, r.title, r.location].join(" ").toLowerCase().includes(q)));
-    document.getElementById("count").textContent = rows.length + " of " + data.jobs.length;
+    document.getElementById("count").textContent = rows.length + " of " + data.counts.total_scored;
     swapHolder(buildTable("all", cols, rows, draw));
   }
   return { toolbar: [search,
@@ -216,7 +271,7 @@ function renderFiltered() {
   const category = r => String(r.reason || "").split(":")[0];
   const reasons = [...new Set(data.filtered_out.map(category))].sort();
   const cols = [text("company", "Company"), text("title", "Title"), text("location", "Location"),
-    text("reason", "Reason")];
+    text("reason", "Reason"), COLS.kept];
   const search = el("input", { type: "search", placeholder: "Search company, title, location", value: f.q,
     "aria-label": "Search" });
   search.addEventListener("input", () => { f.q = search.value; draw(); });
@@ -265,7 +320,55 @@ function renderRuns() {
   } };
 }
 
-const TABS = { ready: renderReady, pipeline: renderPipeline, all: renderAll, filtered: renderFiltered, runs: renderRuns };
+function statCard(n, label, bad) {
+  return el("div", { class: "stat" + (bad ? " bad" : "") }, el("div", { class: "n", text: String(n) }),
+    el("div", { class: "l", text: label }));
+}
+const pct = x => (x === null || x === undefined) ? "n/a" : (100 * x).toFixed(1) + "%";
+
+function renderEval() {
+  return { toolbar: [], async draw() {
+    try { data.eval = await (await fetch("/api/eval")).json(); } catch (e) { say("Could not load eval."); return; }
+    const m = data.eval, p = m.progress, a = m.agreement;
+    const names = new Map([...data.jobs, ...data.filtered_out].map(j => [j.id, j.company + " — " + j.title]));
+    const headline = a.rate === null
+      ? el("div", {}, el("div", { class: "headline", text: "Label " + (p.target - p.labelled) + " more" }),
+          el("div", { class: "l", text: "Agreement is shown once you have labelled " + p.target + " scored jobs." }))
+      : el("div", {}, el("div", { class: "headline", text: pct(a.rate) }),
+          el("div", { class: "l", text: "exact agreement (" + a.agree + " of " + a.total + ")" }));
+    const prog = el("div", { class: "section" }, headline,
+      el("div", { class: "progress" }, el("div", { style: "width:" + Math.min(100, 100 * p.labelled / p.target).toFixed(1) + "%" })),
+      el("div", { class: "l", text: p.labelled + " / " + p.target + " scored jobs labelled" }));
+    const cards = el("div", { class: "cards" },
+      statCard(m.errors.agent_skip_but_i_said_yes, "Agent skip but I said yes (missed opportunities, worse)", true),
+      statCard(m.errors.agent_apply_but_i_said_no, "Agent apply but I said no (wasted time)"));
+    const matrix = el("div", { class: "tablewrap section" }, el("table", { class: "matrix" },
+      el("thead", {}, el("tr", {}, ["Agent ↓ / You →", "yes", "maybe", "no"].map(h => el("th", { text: h })))),
+      el("tbody", {}, Object.entries(m.confusion).map(([v, row]) =>
+        el("tr", {}, el("td", { text: v }), el("td", { text: row.yes }), el("td", { text: row.maybe }), el("td", { text: row.no }))))));
+    const reasons = Object.entries(m.disagreements_by_reason);
+    const reasonBars = reasons.length ? bars("Disagreements by reason category", reasons)
+      : el("div", { class: "empty", text: "No disagreements yet." });
+    const dis = m.disagreements.length ? el("div", { class: "tablewrap section" }, el("table", {},
+      el("thead", {}, el("tr", {}, ["Job", "Agent", "Score", "You", "Reason", "Note"].map(h => el("th", { text: h })))),
+      el("tbody", {}, m.disagreements.map(d => el("tr", {}, el("td", { text: names.get(d.id) || d.id }),
+        el("td", { text: d.agent_verdict }), el("td", { class: "num", text: d.score ?? "" }),
+        el("td", { text: d.my_label }), el("td", { text: d.reason }), el("td", { text: d.note })))))) : "";
+    const f = m.filtered;
+    const fRows = Object.entries(f.by_reason).filter(([, r]) => r.flagged || r.total);
+    const filt = el("div", { class: "section" }, el("h2", { text: "Filtered-out jobs you would have kept" }),
+      el("div", { class: "l", text: f.flagged + " of " + f.total + " flagged (" + pct(f.false_drop_rate) +
+        "). A lower bound unless you have reviewed the whole list." }),
+      fRows.length ? el("div", { class: "tablewrap" }, el("table", {},
+        el("thead", {}, el("tr", {}, ["Drop reason", "Flagged", "Total", "False drop rate"].map(h => el("th", { text: h })))),
+        el("tbody", {}, fRows.map(([c, r]) => el("tr", {}, el("td", { text: c }), el("td", { class: "num", text: r.flagged }),
+          el("td", { class: "num", text: r.total }), el("td", { class: "num", text: pct(r.false_drop_rate) })))))) : "");
+    swapHolder(el("div", {}, prog, cards, el("h2", { text: "Confusion matrix" }), matrix, reasonBars,
+      el("h2", { text: "Disagreements" }), dis, filt));
+  } };
+}
+
+const TABS = { eval: renderEval, ready: renderReady, pipeline: renderPipeline, all: renderAll, filtered: renderFiltered, runs: renderRuns };
 let current = null;
 
 function showTab(name) {

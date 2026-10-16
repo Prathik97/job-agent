@@ -52,3 +52,16 @@ td input.notes { width: 100%; min-width: 180px; }
 .bartrack { background: var(--chip); border-radius: 4px; height: 16px; }
 .bar { background: var(--bar); height: 100%; border-radius: 4px; min-width: 2px; }
 h2 { font-size: 15px; margin: 4px 0 8px; }
+
+td .labelbox { display: flex; flex-direction: column; gap: 4px; min-width: 190px; }
+td .labelbox input { width: 100%; }
+.progress { background: var(--chip); border-radius: 6px; height: 14px; margin: 6px 0 4px; max-width: 420px; }
+.progress > div { background: var(--good); height: 100%; border-radius: 6px; }
+.headline { font-size: 28px; font-weight: 650; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.cards .stat .l { white-space: normal; }
+.stat.bad .n { color: var(--bad); }
+.matrix { width: auto; }
+.matrix td, .matrix th { text-align: right; }
+.matrix th:first-child, .matrix td:first-child { text-align: left; }
+.section { margin-bottom: 20px; }

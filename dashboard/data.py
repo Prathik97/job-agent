@@ -135,3 +135,11 @@ def snapshot_for(data_dir: Path, job_id: str) -> Optional[dict]:
             if job:
                 return {k: job[k] for k in ("company", "title", "url", "score", "verdict")}
     return None
+
+
+def filtered_snapshot_for(data_dir: Path, job_id: str) -> Optional[str]:
+    """The drop reason recorded for a filtered-out job, or None if it is not in the list."""
+    for f in read_json(data_dir / "clean" / "filtered_out.json", []):
+        if f.get("id") == job_id:
+            return str(f.get("reason", ""))
+    return None

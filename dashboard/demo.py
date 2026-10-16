@@ -83,8 +83,31 @@ def make_demo_dir() -> Path:
                          "notes": "posting removed", "history": [],
                          "snapshot": {"company": "Vanished Inc", "title": "Senior Product Manager",
                                       "url": "https://example.com/gone", "score": 81, "verdict": "apply"}}
+    atomic_write(clean / "labels.json", demo_labels(rng, rows, filtered, now_s))
     atomic_write(clean / "screened_jobs.json", rows)
     atomic_write(clean / "filtered_out.json", filtered)
     atomic_write(clean / "applications.json", apps)
     (clean / "run_stats.jsonl").write_text("".join(json.dumps(r) + "\n" for r in runs))
     return root
+
+
+def demo_labels(rng: random.Random, rows: list, filtered: list, now_s: str) -> dict:
+    """34 synthetic labels (so the Eval headline shows) with some deliberate disagreements."""
+    labels = {}
+    agree = {"apply": "yes", "stretch": "maybe", "skip": "no"}
+    reasons = ["location", "seniority", "domain", "role type", "company", "compensation", "other"]
+    for row in rows[:34]:
+        s2 = row["screen"]["stage2"]
+        mine = agree[s2["verdict"]]
+        reason, note = None, ""
+        if rng.random() < 0.35:
+            mine = rng.choice([x for x in ("yes", "maybe", "no") if x != mine])
+            reason = rng.choice(reasons)
+            note = "synthetic demo note"
+        labels[row["id"]] = {"kind": "scored", "label": mine, "reason": reason, "note": note,
+                             "labelled_at": now_s,
+                             "snapshot": {"score": s2["score"], "verdict": s2["verdict"]}}
+    for f in filtered[:3]:
+        labels[f["id"]] = {"kind": "filtered", "label": "yes", "reason": rng.choice(reasons),
+                           "note": "", "labelled_at": now_s, "snapshot": {"drop_reason": f["reason"]}}
+    return labels

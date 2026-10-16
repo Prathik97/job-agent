@@ -289,3 +289,18 @@ def test_ats_job_notes_aggregator():
     rule = RuleResult(status="stage2", tier="A", location_status="confirmed")
     out = stage2.apply_caps(entry(), rule, also_listed_on=("jsearch",))
     assert out["verdict"] == "apply" and "also listed on jsearch" in out["notes"]
+
+
+@pytest.mark.parametrize("a,b", [
+    ("Bangalore", "Bengaluru"), ("Gurgaon", "Gurugram"), ("Gurugram, Haryana, India", "Gurgaon"),
+    ("Bengaluru, Karnataka, India", "Bangalore"), ("Bangalore", "Bengaluru, Karnataka, India"),
+])
+def test_city_aliases_are_compatible(a, b):
+    assert locations_compatible(a, b)
+
+
+def test_alias_jobs_merge_but_other_cities_do_not():
+    assert len(merge_sources([make("greenhouse", location="Gurgaon"),
+                              make("jsearch", location="Gurugram, Haryana, India")])) == 1
+    assert len(merge_sources([make("greenhouse", location="Gurgaon"),
+                              make("jsearch", location="Bengaluru, India")])) == 2
