@@ -37,12 +37,13 @@ th { font-size: 12px; color: var(--muted); white-space: nowrap; user-select: non
 th.sortable { cursor: pointer; }
 tr:last-child td { border-bottom: 0; }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 8px; font-size: 12px; margin: 1px 2px 1px 0; }
+.chip { white-space: nowrap; display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 8px; font-size: 12px; margin: 1px 2px 1px 0; }
 .chip.apply { color: var(--good); } .chip.stretch { color: var(--warn); } .chip.skip { color: var(--muted); }
 .chip.followup { background: var(--bad); color: #fff; }
 .note { color: var(--warn); font-size: 12px; display: block; }
 a.btn { display: inline-block; text-decoration: none; background: var(--card); color: var(--accent);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
+td button.btn { white-space: nowrap; }
 td input.notes { width: 100%; min-width: 180px; }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 .count { color: var(--muted); font-size: 12px; margin-left: auto; }
