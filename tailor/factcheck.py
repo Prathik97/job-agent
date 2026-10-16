@@ -96,14 +96,18 @@ def check_tools(label: str, text: str, facts: Facts, ctx: Context) -> List[str]:
     return out
 
 
+_SUFFIX_WORDS = r"\b(pvt|ltd|inc|llc|llp|corp|corporation|labs|technologies|limited|private|systems|solutions)\b\.?"
+
+
 def check_companies(label: str, text: str, facts: Facts, ctx: Context) -> List[str]:
     out = []
     known = " | ".join(facts.companies)
+    known_bases = {re.sub(_SUFFIX_WORDS, "", c).strip(" .,") for c in facts.companies}
     for m in _COMPANY_SUFFIX.finditer(text):
         name = m.group(1)
-        base = re.sub(r"\b(pvt|ltd|inc|llc|llp|corp|corporation|labs|technologies|limited|private|systems|solutions)\b\.?",
-                      "", name.lower()).strip(" .,")
-        if base and base not in known and not _in_jd_or_target(base, ctx):
+        base = re.sub(_SUFFIX_WORDS, "", name.lower()).strip(" .,")
+        # a leading capitalised word from the sentence ("At Sid's Farm Pvt. Ltd.") must not hide a match
+        if base and not any(kb and kb in base for kb in known_bases) and not _in_jd_or_target(base, ctx):
             out.append(f"{label}: company '{name}' is not in master_profile.json")
     for m in _EMPLOYER_CUE.finditer(text):
         name = m.group(1).strip()

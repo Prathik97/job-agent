@@ -144,6 +144,11 @@ def test_changed_title_or_date_is_caught():
     assert violations("Associate Vice President - Product, August 2024 to July 2026.") == []
 
 
+def test_sentence_start_word_does_not_hide_a_real_company():
+    assert violations("At Beta Pvt. Ltd. I owned the subscription app.") == []
+    assert violations("Earlier, at Gamma Technologies Pvt. Ltd., I built payments.") == []
+
+
 def test_invented_company_is_caught():
     assert any("Zoho" in x for x in violations("Earlier I worked at Zoho Pvt Ltd on payments."))
     assert any("Flipkart" in x for x in violations("I joined Flipkart to run checkout."))
