@@ -46,16 +46,30 @@ def read_jsonl(path: Path) -> List[dict]:
     return rows
 
 
-def is_ready(row: dict) -> bool:
+CHECK_NOTES = ("possibly stale", "verify location")
+
+
+def needs_check(row: dict) -> bool:
+    """True if the job carries a "possibly stale" or "verify location" note."""
+    return any(c in n.lower() for n in row.get("notes", []) for c in CHECK_NOTES)
+
+
+def is_ready(row: dict, show_all_stretch: bool = False, show_flagged: bool = False) -> bool:
     """Ready to apply: apply verdicts, plus stretch jobs at or above READY_STRETCH_MIN_SCORE.
-    Capped role families (physical_ops, other) never qualify, whatever their score."""
+    Capped role families (physical_ops, other) never qualify, whatever their score.
+    A non-apply job with a stale or verify-location note is hidden unless `show_flagged`;
+    apply jobs with those notes stay visible and keep the note."""
     if row.get("orphaned") or row["status"] not in READY_STATUSES:
         return False
     if row.get("role_family") in CAPPED_ROLE_FAMILIES:
         return False
     if row["verdict"] == "apply":
         return True
-    return row["verdict"] == "stretch" and (row.get("score") or 0) >= READY_STRETCH_MIN_SCORE
+    if row["verdict"] != "stretch":
+        return False
+    if needs_check(row) and not show_flagged:
+        return False
+    return show_all_stretch or (row.get("score") or 0) >= READY_STRETCH_MIN_SCORE
 
 
 def job_row(row: dict) -> Optional[dict]:

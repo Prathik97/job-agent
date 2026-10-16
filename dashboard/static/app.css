@@ -75,3 +75,4 @@ td .labelbox input { width: 100%; }
 .files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
 .files .l { width: 100%; }
 button:disabled, select:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
+.toggle { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }

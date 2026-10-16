@@ -138,3 +138,54 @@ def test_frontend_has_toggle_age_labels_and_unknown_age():
     js = (Path(__file__).parent.parent / "dashboard" / "static" / "app.js").read_text()
     assert "Show all stretch" in js and "days ago" in js and "unknown age" in js
     assert "capped_families" in js
+
+
+# ---------- stale / unverified notes ----------
+
+def noted(verdict, score, *notes, family="product"):
+    return {**row(verdict, score, family), "notes": list(notes)}
+
+
+STALE = "possibly stale, check the listing is still open (posted 88 days ago)"
+
+
+def test_stale_or_unverified_stretch_hidden_unless_second_toggle():
+    from dashboard.data import is_ready as ready, needs_check
+    for note in (STALE, "verify location"):
+        j = noted("stretch", 74, note)
+        assert needs_check(j)
+        assert not ready(j) and not ready(j, show_all_stretch=True)      # hidden by default
+        assert ready(j, show_flagged=True)                               # one click away
+    low = noted("stretch", 60, "verify location")
+    assert not ready(low, show_flagged=True) and ready(low, True, True)  # toggles are independent
+    clean = noted("stretch", 74, "partial JD, open the link and read it before applying")
+    assert ready(clean) and not needs_check(clean)
+
+
+def test_apply_jobs_with_those_notes_stay_visible_with_their_notes():
+    from dashboard.data import is_ready as ready
+    j = noted("apply", 72, STALE, "verify location")
+    assert ready(j) and j["notes"] == [STALE, "verify location"]
+    assert not ready(noted("apply", 99, "verify location", family="other"))   # capped families still never
+
+
+def test_state_ready_count_excludes_flagged_stretch(tmp_path):
+    clean = tmp_path / "clean"
+    clean.mkdir()
+
+    def scored(jid, verdict, score, *notes):
+        return {"id": jid, "source": "lever", "title": "T", "company": jid, "location": "L", "url": "https://x",
+                "posted_date": None, "also_listed_on": [],
+                "screen": {"status": "scored", "tier": "A", "notes": list(notes),
+                           "stage2": {"score": score, "verdict": verdict, "role_family": "product",
+                                      "red_flags": [], "notes": list(notes)}}}
+    rows = [scored("a", "apply", 72, "verify location"), scored("s", "stretch", 70),
+            scored("sv", "stretch", 80, "verify location"), scored("ss", "stretch", 80, STALE)]
+    (clean / "screened_jobs.json").write_text(json.dumps(rows))
+    state = build_state(tmp_path, ApplicationsStore(clean / "applications.json"), today=TODAY)
+    assert state["counts"]["ready"] == 2 and state["counts"]["total_scored"] == 4   # All scored unchanged
+
+
+def test_frontend_has_second_toggle():
+    js = (Path(__file__).parent.parent / "dashboard" / "static" / "app.js").read_text()
+    assert "Show stale or unverified" in js and "needsCheck" in js

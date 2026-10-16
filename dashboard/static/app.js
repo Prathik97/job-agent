@@ -15,6 +15,7 @@ const ui = {
   sort: { ready: ["score", -1], pipeline: ["applied_at", -1], all: ["score", -1], filtered: ["company", 1] },
   sample: { on: false, ids: [] },
   showAllStretch: false,
+  showFlagged: false,
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
 };
 
@@ -98,17 +99,21 @@ async function save(job, body) {
 // ---- derived numbers ----
 // Ready to apply: apply verdicts plus stretch at or above the score cutoff; capped role families
 // never qualify. `showAllStretch` adds the lower-scoring stretch jobs (still never capped families).
-function isReady(r, showAllStretch) {
+const CHECK_NOTES = ["possibly stale", "verify location"];
+const needsCheck = r => r.notes.some(n => CHECK_NOTES.some(c => n.toLowerCase().includes(c)));
+
+function isReady(r, showAllStretch, showFlagged) {
   if (r.orphaned || !["new", "shortlisted"].includes(r.status)) return false;
   if (data.counts.capped_families.includes(r.role_family)) return false;
-  if (r.verdict === "apply") return true;
-  return r.verdict === "stretch" && (showAllStretch || (r.score || 0) >= data.counts.ready_stretch_min);
+  if (r.verdict === "apply") return true;   // apply jobs stay visible and keep their notes
+  if (r.verdict !== "stretch" || (needsCheck(r) && !showFlagged)) return false;
+  return showAllStretch || (r.score || 0) >= data.counts.ready_stretch_min;
 }
 
 function recount() {
   const rows = data.jobs, c = data.counts;
   const n = (...s) => rows.filter(r => s.includes(r.status)).length;
-  c.ready = rows.filter(r => isReady(r, false)).length;
+  c.ready = rows.filter(r => isReady(r, false, false)).length;
   c.applied = n("applied"); c.interview = n("interview"); c.rejected = n("rejected"); c.skipped = n("skipped");
   renderStrip();
 }
@@ -310,13 +315,16 @@ function holder() { return el("div", { id: "holder" }); }
 function swapHolder(node) { document.getElementById("holder").replaceChildren(node); }
 
 function renderReady() {
-  const rows = () => data.jobs.filter(r => isReady(r, ui.showAllStretch));
+  const rows = () => data.jobs.filter(r => isReady(r, ui.showAllStretch, ui.showFlagged));
   const cols = [COLS.company, COLS.title, COLS.location, COLS.source, COLS.score, COLS.verdict, COLS.notes,
     COLS.posted, COLS.open, COLS.prepare, COLS.status, COLS.mark];
   const toggle = el("label", { class: "toggle" },
     el("input", { type: "checkbox", checked: ui.showAllStretch, onchange: ev => { ui.showAllStretch = ev.target.checked; refresh(); } }),
     " Show all stretch (below " + data.counts.ready_stretch_min + " too)");
-  return { toolbar: [toggle, el("span", { class: "count", id: "count" })],
+  const flagged = el("label", { class: "toggle" },
+    el("input", { type: "checkbox", checked: ui.showFlagged, onchange: ev => { ui.showFlagged = ev.target.checked; refresh(); } }),
+    " Show stale or unverified");
+  return { toolbar: [toggle, flagged, el("span", { class: "count", id: "count" })],
     draw() { const r = rows(); document.getElementById("count").textContent = r.length + " jobs";
       swapHolder(buildTable("ready", cols, r, refresh)); } };
 }
