@@ -8,3 +8,6 @@ google-auth
 python-telegram-bot
 pydantic
 pytest
+python-docx
+reportlab
+pypdf

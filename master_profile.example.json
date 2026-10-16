@@ -16,10 +16,26 @@
     "Owns discovery, PRDs and release end to end"
   ],
   "skills": {
-    "product_and_design": ["Roadmapping", "Prioritisation", "A/B testing", "PRDs"],
-    "growth": ["Funnel Analysis", "Activation", "Retention"],
-    "leadership": ["Stakeholder Management", "Cross-functional Execution"],
-    "tools": ["Jira", "Figma", "Mixpanel"]
+    "product_and_design": [
+      "Roadmapping",
+      "Prioritisation",
+      "A/B testing",
+      "PRDs"
+    ],
+    "growth": [
+      "Funnel Analysis",
+      "Activation",
+      "Retention"
+    ],
+    "leadership": [
+      "Stakeholder Management",
+      "Cross-functional Execution"
+    ],
+    "tools": [
+      "Jira",
+      "Figma",
+      "Mixpanel"
+    ]
   },
   "experience": [
     {
@@ -33,9 +49,15 @@
       "achievements": [
         {
           "id": "ca_onboarding",
-          "tags": ["growth", "onboarding", "activation"],
+          "tags": [
+            "growth",
+            "onboarding",
+            "activation"
+          ],
           "text": "Redesigned onboarding, lifting activation by 20%.",
-          "metrics": ["+20% activation"]
+          "metrics": [
+            "+20% activation"
+          ]
         }
       ]
     }
@@ -47,10 +69,30 @@
     "start": "August 2014",
     "end": "May 2018"
   },
-  "certifications": ["Example Certification"],
+  "certifications": [
+    "Example Certification"
+  ],
   "guardrails": {
-    "never_change": ["name", "company names", "job titles", "dates", "metrics", "education"],
-    "never_invent": ["tools not in skills.tools", "metrics not in achievements", "team sizes", "revenue figures"],
+    "never_change": [
+      "name",
+      "company names",
+      "job titles",
+      "dates",
+      "metrics",
+      "education"
+    ],
+    "never_invent": [
+      "tools not in skills.tools",
+      "metrics not in achievements",
+      "team sizes",
+      "revenue figures"
+    ],
     "max_pages": 2
-  }
+  },
+  "equivalents": [
+    {
+      "inr": "₹10Cr ARR",
+      "usd": "$1.2M ARR"
+    }
+  ]
 }
