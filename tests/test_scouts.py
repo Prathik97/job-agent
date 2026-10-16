@@ -62,7 +62,7 @@ def test_schema_fields():
     job = ashby.parse(ASHBY_RAW, "Acme")[0]
     assert set(job.model_dump()) == {"id", "source", "title", "company", "location",
                                      "remote_type", "url", "description", "posted_date",
-                                     "fetched_at"}
+                                     "fetched_at", "jd_partial", "also_listed_on"}
 
 
 @pytest.mark.parametrize("loc,hint,expected", [
@@ -112,8 +112,8 @@ def test_run_is_idempotent_and_survives_failures(tmp_path, monkeypatch):
 
     for mod in (greenhouse, lever, ashby):
         monkeypatch.setattr(mod, "get_json", fake_get_json)
-    first = run_scouts.run(companies, out)
-    second = run_scouts.run(companies, out)
+    first = run_scouts.run(companies, out, aggregators=False)
+    second = run_scouts.run(companies, out, aggregators=False)
     assert len(first) == len(second) == 3
     assert len(json.loads(out.read_text())) == 3
     assert {j["source"] for j in json.loads(out.read_text())} == {"greenhouse", "lever", "ashby"}
@@ -126,10 +126,10 @@ def test_failed_fetch_does_not_wipe_previous_output(tmp_path, monkeypatch):
     companies.write_text("ashby: [d]\n")
     out = tmp_path / "out.json"
     monkeypatch.setattr(ashby, "get_json", lambda *a, **k: ASHBY_RAW)
-    run_scouts.run(companies, out)
+    run_scouts.run(companies, out, aggregators=False)
 
     def boom(*a, **k):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(ashby, "get_json", boom)
-    assert len(run_scouts.run(companies, out)) == 1
+    assert len(run_scouts.run(companies, out, aggregators=False)) == 1
     assert len(json.loads(out.read_text())) == 1

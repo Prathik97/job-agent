@@ -24,9 +24,10 @@ CACHE_DIR = Path("data/raw/cache")
 _last_call = 0.0
 
 
-def make_session() -> requests.Session:
+def make_session(retry_statuses: tuple = (429, 500, 502, 503, 504)) -> requests.Session:
+    """Retrying session. Metered APIs pass a list without 429 so a quota error surfaces at once."""
     session = requests.Session()
-    retry = Retry(total=3, backoff_factor=1.0, status_forcelist=(429, 500, 502, 503, 504),
+    retry = Retry(total=3, backoff_factor=1.0, status_forcelist=retry_statuses,
                   allowed_methods=("GET",), respect_retry_after_header=True)
     session.mount("https://", HTTPAdapter(max_retries=retry))
     session.headers["User-Agent"] = USER_AGENT

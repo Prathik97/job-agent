@@ -160,7 +160,8 @@ def screen(candidates: List[Candidate], cache: Cache, ctx: stage2.ScoringContext
         if s2_entry.get("failed"):
             out[job.id] = _record(job, rule, "skipped_invalid_json", s1_entry, s2_entry)
         else:
-            out[job.id] = _record(job, rule, "scored", s1_entry, stage2.apply_caps(s2_entry, rule))
+            out[job.id] = _record(job, rule, "scored", s1_entry, stage2.apply_caps(
+                s2_entry, rule, jd_partial=job.jd_partial, also_listed_on=tuple(job.also_listed_on)))
     return out
 
 

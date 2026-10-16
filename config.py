@@ -22,3 +22,20 @@ HEAD_FRACTION = 0.7
 
 # Dry-run assumption only: share of stage 1 jobs expected to be kept.
 ASSUMED_STAGE1_KEEP_RATE = 0.5
+
+# ---------------------------------------------------------------
+# Aggregator API budgets. Deliberately conservative placeholders.
+# TODO: update these once you have signed up and read your real plan limits
+# (RapidAPI dashboard for JSearch, Adzuna developer dashboard for Adzuna).
+# ---------------------------------------------------------------
+JSEARCH_MONTHLY_CALLS = 100      # TODO: update to your real JSearch free-plan limit
+ADZUNA_DAILY_CALLS = 20          # TODO: update to your real Adzuna daily limit
+ADZUNA_MONTHLY_CALLS = 400       # TODO: update to your real Adzuna monthly limit
+
+# Per-run caps so one run cannot burn the month. Queries rotate across runs (see scout/queries.py).
+JSEARCH_MAX_CALLS_PER_RUN = 4
+ADZUNA_MAX_CALLS_PER_RUN = 10
+
+# Spend guard: a run aborts before any Stage 1 / Stage 2 call if the estimated cost is above
+# this, unless --max-cost overrides it.
+MAX_COST_PER_RUN = 1.00

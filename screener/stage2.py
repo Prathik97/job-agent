@@ -127,7 +127,11 @@ def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Us
 CAPPED_FAMILIES = ("physical_ops", "other")
 
 
-def apply_caps(entry: dict, rule: RuleResult) -> dict:
+PARTIAL_JD_NOTE = "partial JD, open the link and read it before applying"
+
+
+def apply_caps(entry: dict, rule: RuleResult, jd_partial: bool = False,
+               also_listed_on: tuple = ()) -> dict:
     """Final verdict from a cached (uncapped) stage 2 entry plus rule facts.
 
     Caps are applied here, not before caching, so changing a rule never needs a re-score.
@@ -145,5 +149,11 @@ def apply_caps(entry: dict, rule: RuleResult) -> dict:
         notes.append("verify location")
         if out["verdict"] == "apply":
             out["verdict"] = "stretch"
+    if jd_partial:
+        notes.append(PARTIAL_JD_NOTE)
+        if out["verdict"] == "apply":
+            out["verdict"] = "stretch"
+    if also_listed_on:
+        notes.append("also listed on " + ", ".join(also_listed_on))
     out["notes"] = notes
     return out

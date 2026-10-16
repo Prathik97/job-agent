@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 from scout.schema import Job
 from screener.models import RuleResult
+from screener.titles import normalize_title
 
 # Reject keywords that only apply when the title has no "product" word, so
 # "Product Manager, Salesforce Integrations" or "Product Manager, Sales Tools" survive.
@@ -151,8 +152,9 @@ class Rules:
     def from_profile(cls, profile: dict) -> "Rules":
         titles, exp, loc = profile["titles"], profile["experience"], profile["location"]
         return cls(
-            tiers={t: [phrase_re(x) for x in titles.get(f"tier_{t.lower()}", [])] for t in "ABC"},
-            rejects=[(k, phrase_re(k)) for k in profile.get("title_reject_keywords", [])],
+            tiers={t: [phrase_re(normalize_title(x)) for x in titles.get(f"tier_{t.lower()}", [])]
+                   for t in "ABC"},
+            rejects=[(k, phrase_re(normalize_title(k))) for k in profile.get("title_reject_keywords", [])],
             reject_phrases=[(k, phrase_re(k)) for k in loc.get("reject_if_text_contains", [])],
             cities=[c.lower() for c in loc.get("onsite_or_hybrid_cities", [])],
             remote_allowed=bool(loc.get("remote_allowed", True)),
@@ -163,6 +165,7 @@ class Rules:
         )
 
     def title_reject(self, title: str) -> Optional[str]:
+        title = normalize_title(title)
         has_product = bool(phrase_re("product").search(title))
         for kw, pat in self.rejects:
             if kw.lower() in CONDITIONAL_REJECTS and has_product:
@@ -172,6 +175,7 @@ class Rules:
         return None
 
     def title_tier(self, title: str) -> Optional[str]:
+        title = normalize_title(title)
         for tier in "ABC":
             if any(p.search(title) for p in self.tiers[tier]):
                 return tier
@@ -210,16 +214,17 @@ class Rules:
         def drop(reason: str, **kw) -> RuleResult:
             return RuleResult(status="drop", drop_reason=reason, **kw)
 
-        kw = self.title_reject(job.title)
+        title = normalize_title(job.title)
+        kw = self.title_reject(title)
         if kw:
             return drop(f"title_reject:{kw}")
 
-        tier = self.title_tier(job.title)
+        tier = self.title_tier(title)
         if tier is None:
-            kind = pm_role_kind(job.title)
+            kind = pm_role_kind(title)
             if kind is None:
                 return drop("title_untiered")
-            if kind == "weak" and any(b.search(job.title) for b in _BLOCK_RE):
+            if kind == "weak" and any(b.search(title) for b in _BLOCK_RE):
                 return drop("title_blocklist")
             tier = "untiered"
 
