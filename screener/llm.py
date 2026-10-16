@@ -63,7 +63,7 @@ def ask_json(client, model: str, system: str, user: str, validate: Callable[[dic
     last: Exception = ValueError("no attempt")
     for attempt in (1, 2):
         resp = client.messages.create(
-            model=model, max_tokens=max_tokens, temperature=0, system=system,
+            model=model, max_tokens=max_tokens, system=system,
             messages=[{"role": "user", "content": user}],
         )
         usage.add(model, resp)

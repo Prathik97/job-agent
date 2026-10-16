@@ -146,6 +146,10 @@ class FakeClient:
         self.messages = SimpleNamespace(create=self._create)
 
     def _create(self, **kw):
+        import inspect
+        from anthropic.resources.messages import Messages
+        allowed = set(inspect.signature(Messages.create).parameters)
+        assert set(kw) <= allowed, f"not accepted by the installed SDK: {set(kw) - allowed}"
         self.calls.append(kw)
         text = self.replies.pop(0)
         return SimpleNamespace(content=[SimpleNamespace(text=text)],
