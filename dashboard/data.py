@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlsplit
 
+from config import CAPPED_ROLE_FAMILIES, READY_STRETCH_MIN_SCORE
 from dashboard.store import PIPELINE_STATUSES, ApplicationsStore
+from screener.freshness import posting_age_days
 
 FOLLOW_UP_DAYS = 7
-READY_VERDICTS = ("apply", "stretch")
 READY_STATUSES = ("new", "shortlisted")
 
 
@@ -45,6 +46,18 @@ def read_jsonl(path: Path) -> List[dict]:
     return rows
 
 
+def is_ready(row: dict) -> bool:
+    """Ready to apply: apply verdicts, plus stretch jobs at or above READY_STRETCH_MIN_SCORE.
+    Capped role families (physical_ops, other) never qualify, whatever their score."""
+    if row.get("orphaned") or row["status"] not in READY_STATUSES:
+        return False
+    if row.get("role_family") in CAPPED_ROLE_FAMILIES:
+        return False
+    if row["verdict"] == "apply":
+        return True
+    return row["verdict"] == "stretch" and (row.get("score") or 0) >= READY_STRETCH_MIN_SCORE
+
+
 def job_row(row: dict) -> Optional[dict]:
     """Flatten a screened_jobs.json record; None if the job was not scored."""
     screen = row.get("screen") or {}
@@ -54,7 +67,7 @@ def job_row(row: dict) -> Optional[dict]:
     return {"id": row["id"], "company": row.get("company", ""), "title": row.get("title", ""),
             "location": row.get("location", ""), "source": row.get("source", ""),
             "url": safe_url(row.get("url")), "posted_date": row.get("posted_date"),
-            "tier": screen.get("tier") or "", "score": s2["score"], "verdict": s2["verdict"],
+            "tier": screen.get("tier") or "", "role_family": s2.get("role_family") or "", "score": s2["score"], "verdict": s2["verdict"],
             "notes": list(screen.get("notes") or []), "red_flags": list(s2.get("red_flags") or []),
             "also_listed_on": list(row.get("also_listed_on") or []), "orphaned": False,
             "jd_partial": bool(row.get("jd_partial"))}
@@ -108,6 +121,7 @@ def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] 
     rows = list(jobs.values())
     for row in rows:
         row["follow_up"] = follow_up_due(row, today)
+        row["age_days"] = posting_age_days(row.get("posted_date"), today)
     runs = read_jsonl(clean / "run_stats.jsonl")
     real_runs = [r for r in runs if not r.get("aborted")]
 
@@ -115,8 +129,8 @@ def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] 
         return sum(1 for r in rows if r["status"] in statuses)
 
     counts = {
-        "ready": sum(1 for r in rows if r["verdict"] in READY_VERDICTS and r["status"] in READY_STATUSES
-                     and not r["orphaned"]),
+        "ready": sum(1 for r in rows if is_ready(r)),
+        "ready_stretch_min": READY_STRETCH_MIN_SCORE, "capped_families": list(CAPPED_ROLE_FAMILIES),
         "applied": count("applied"), "interview": count("interview"),
         "rejected": count("rejected"), "skipped": count("skipped"),
         "total_scored": sum(1 for r in rows if not r["orphaned"]),

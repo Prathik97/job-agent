@@ -122,6 +122,13 @@ scoring:
     top_pick_min_score: 85   # these get the Opus polish
 
 # ---------------------------------------------------------------
+# FRESHNESS (posting age, from the job's posted_date; unknown age is never penalised)
+# ---------------------------------------------------------------
+freshness:
+  stale_note_after_days: 60    # older: "possibly stale" note, verdict capped at stretch
+  stale_skip_after_days: 120   # older: verdict capped at skip, reason "stale posting"
+
+# ---------------------------------------------------------------
 # TAILORING RULES (non negotiable)
 # ---------------------------------------------------------------
 tailoring_rules:

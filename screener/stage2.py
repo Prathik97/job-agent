@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 from scout.schema import Job
-from config import SONNET, STAGE2_MAX_CHARS
+from config import (CAPPED_ROLE_FAMILIES, SONNET, STAGE2_MAX_CHARS, STALE_NOTE_AFTER_DAYS,
+                    STALE_SKIP_AFTER_DAYS)
 from screener.llm import Usage, ask_json
 from screener.models import RuleResult, Stage2Raw, Stage2Result
 from screener.text import sha, truncate
@@ -35,6 +36,8 @@ class ScoringContext:
     stretch_min: int
     system: str
     hash: str  # covers the system prompt, user template and truncation limit
+    stale_note_days: int = STALE_NOTE_AFTER_DAYS
+    stale_skip_days: int = STALE_SKIP_AFTER_DAYS
 
 
 def build_context(profile: dict) -> ScoringContext:
@@ -72,8 +75,11 @@ def build_context(profile: dict) -> ScoringContext:
         'Reply with ONLY a JSON object: {"role_family": "<one of the five>", "scores": {' + keys + '}, "reasons": ["..."], '
         '"red_flags": ["..."]}'
     )
+    fresh = profile.get("freshness") or {}
     return ScoringContext(weights, shortlist_min, stretch_min, system,
-                          sha(system + USER_TEMPLATE + str(STAGE2_MAX_CHARS)))
+                          sha(system + USER_TEMPLATE + str(STAGE2_MAX_CHARS)),
+                          int(fresh.get("stale_note_after_days", STALE_NOTE_AFTER_DAYS)),
+                          int(fresh.get("stale_skip_after_days", STALE_SKIP_AFTER_DAYS)))
 
 
 USER_TEMPLATE = """Title: {title}
@@ -124,14 +130,20 @@ def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Us
                     make_validator(ctx), usage, MAX_OUT_TOKENS)
 
 
-CAPPED_FAMILIES = ("physical_ops", "other")
+CAPPED_FAMILIES = CAPPED_ROLE_FAMILIES
 
 
 PARTIAL_JD_NOTE = "partial JD, open the link and read it before applying"
 
 
+STALE_NOTE = "possibly stale, check the listing is still open"
+STALE_REASON = "stale posting"
+
+
 def apply_caps(entry: dict, rule: RuleResult, jd_partial: bool = False,
-               also_listed_on: tuple = ()) -> dict:
+               also_listed_on: tuple = (), age_days: Optional[int] = None,
+               stale_note_days: int = STALE_NOTE_AFTER_DAYS,
+               stale_skip_days: int = STALE_SKIP_AFTER_DAYS) -> dict:
     """Final verdict from a cached (uncapped) stage 2 entry plus rule facts.
 
     Caps are applied here, not before caching, so changing a rule never needs a re-score.
@@ -153,6 +165,14 @@ def apply_caps(entry: dict, rule: RuleResult, jd_partial: bool = False,
         notes.append(PARTIAL_JD_NOTE)
         if out["verdict"] == "apply":
             out["verdict"] = "stretch"
+    if age_days is not None:   # unknown age is never penalised
+        if age_days > stale_skip_days:
+            notes.append(f"{STALE_REASON}: posted {age_days} days ago")
+            out["verdict"] = "skip"
+        elif age_days > stale_note_days:
+            notes.append(f"{STALE_NOTE} (posted {age_days} days ago)")
+            if out["verdict"] == "apply":
+                out["verdict"] = "stretch"
     if also_listed_on:
         notes.append("also listed on " + ", ".join(also_listed_on))
     out["notes"] = notes

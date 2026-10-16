@@ -39,3 +39,11 @@ ADZUNA_MAX_CALLS_PER_RUN = 10
 # Spend guard: a run aborts before any Stage 1 / Stage 2 call if the estimated cost is above
 # this, unless --max-cost overrides it.
 MAX_COST_PER_RUN = 1.00
+
+# Role families whose verdict is capped at stretch, and which never appear in "Ready to apply".
+CAPPED_ROLE_FAMILIES = ("physical_ops", "other")
+# "Ready to apply" shows apply verdicts plus stretch jobs scoring at or above this.
+READY_STRETCH_MIN_SCORE = 65
+# Posting freshness defaults; profile.yaml `freshness:` overrides them.
+STALE_NOTE_AFTER_DAYS = 60    # older: "possibly stale" note and cap at stretch
+STALE_SKIP_AFTER_DAYS = 120   # older: capped at skip, reason "stale posting"

@@ -20,6 +20,7 @@ import yaml
 from config import HAIKU, MAX_COST_PER_RUN, SONNET
 from scout.schema import Job
 from screener import stage1, stage2
+from screener.freshness import posting_age_days
 from screener.cache import Cache, atomic_write_json, cache_key
 from screener.llm import ScreenError, Usage, cost_usd, make_client
 from screener.models import RuleResult, Stage1Decision, Stage2Result
@@ -115,7 +116,7 @@ def log_funnel(f: dict, limit: Optional[int]) -> None:
 
 def _record(job: Job, rule: RuleResult, status: str, s1: Optional[dict], s2: Optional[dict]) -> dict:
     return {**job.model_dump(), "screen": {
-        "status": status, "tier": rule.tier, "years_required": rule.years_required,
+        "status": status, "tier": rule.tier, "posting_age_days": posting_age_days(job.posted_date), "years_required": rule.years_required,
         "flags": rule.flags, "location_status": rule.location_status,
         "notes": (s2 or {}).get("notes", []), "stage1": s1, "stage2": s2,
         "screened_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}}
@@ -165,7 +166,9 @@ def screen(candidates: List[Candidate], cache: Cache, ctx: stage2.ScoringContext
             out[job.id] = _record(job, rule, "skipped_invalid_json", s1_entry, s2_entry)
         else:
             out[job.id] = _record(job, rule, "scored", s1_entry, stage2.apply_caps(
-                s2_entry, rule, jd_partial=job.jd_partial, also_listed_on=tuple(job.also_listed_on)))
+                s2_entry, rule, jd_partial=job.jd_partial, also_listed_on=tuple(job.also_listed_on),
+                age_days=posting_age_days(job.posted_date), stale_note_days=ctx.stale_note_days,
+                stale_skip_days=ctx.stale_skip_days))
     return out
 
 

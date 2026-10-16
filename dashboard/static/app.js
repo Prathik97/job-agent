@@ -14,6 +14,7 @@ let tab = "ready";
 const ui = {
   sort: { ready: ["score", -1], pipeline: ["applied_at", -1], all: ["score", -1], filtered: ["company", 1] },
   sample: { on: false, ids: [] },
+  showAllStretch: false,
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
 };
 
@@ -95,11 +96,19 @@ async function save(job, body) {
 }
 
 // ---- derived numbers ----
+// Ready to apply: apply verdicts plus stretch at or above the score cutoff; capped role families
+// never qualify. `showAllStretch` adds the lower-scoring stretch jobs (still never capped families).
+function isReady(r, showAllStretch) {
+  if (r.orphaned || !["new", "shortlisted"].includes(r.status)) return false;
+  if (data.counts.capped_families.includes(r.role_family)) return false;
+  if (r.verdict === "apply") return true;
+  return r.verdict === "stretch" && (showAllStretch || (r.score || 0) >= data.counts.ready_stretch_min);
+}
+
 function recount() {
   const rows = data.jobs, c = data.counts;
   const n = (...s) => rows.filter(r => s.includes(r.status)).length;
-  c.ready = rows.filter(r => ["apply", "stretch"].includes(r.verdict) &&
-    ["new", "shortlisted"].includes(r.status) && !r.orphaned).length;
+  c.ready = rows.filter(r => isReady(r, false)).length;
   c.applied = n("applied"); c.interview = n("interview"); c.rejected = n("rejected"); c.skipped = n("skipped");
   renderStrip();
 }
@@ -283,7 +292,9 @@ const COLS = {
   score: { key: "score", label: "Score", num: true, value: r => r.score, render: scoreCell },
   verdict: { key: "verdict", label: "Verdict", value: r => r.verdict, render: verdictChip },
   notes: { key: "notes", label: "Notes", sortable: false, value: r => r.notes.join("; "), render: notesCell },
-  posted: { key: "posted_date", label: "Posted", value: r => (r.posted_date || "").slice(0, 10) },
+  posted: { key: "age_days", label: "Posted", num: true, value: r => r.age_days,
+    render: r => r.age_days === null || r.age_days === undefined ? el("span", { class: "chip", text: "unknown age" })
+      : (r.age_days > 60 ? [r.age_days + " days ago", el("span", { class: "note", text: "possibly stale" })] : r.age_days + " days ago") },
   open: { key: "open", label: "", sortable: false, value: () => "", render: r => openLink(r.url) },
   status: { key: "status", label: "Status", value: r => r.status, render: statusSelect },
   mark: { key: "mark", label: "", sortable: false, value: () => "", render: markApplied },
@@ -299,11 +310,13 @@ function holder() { return el("div", { id: "holder" }); }
 function swapHolder(node) { document.getElementById("holder").replaceChildren(node); }
 
 function renderReady() {
-  const rows = () => data.jobs.filter(r => ["apply", "stretch"].includes(r.verdict) &&
-    ["new", "shortlisted"].includes(r.status) && !r.orphaned);
+  const rows = () => data.jobs.filter(r => isReady(r, ui.showAllStretch));
   const cols = [COLS.company, COLS.title, COLS.location, COLS.source, COLS.score, COLS.verdict, COLS.notes,
     COLS.posted, COLS.open, COLS.prepare, COLS.status, COLS.mark];
-  return { toolbar: [el("span", { class: "count", id: "count" })],
+  const toggle = el("label", { class: "toggle" },
+    el("input", { type: "checkbox", checked: ui.showAllStretch, onchange: ev => { ui.showAllStretch = ev.target.checked; refresh(); } }),
+    " Show all stretch (below " + data.counts.ready_stretch_min + " too)");
+  return { toolbar: [toggle, el("span", { class: "count", id: "count" })],
     draw() { const r = rows(); document.getElementById("count").textContent = r.length + " jobs";
       swapHolder(buildTable("ready", cols, r, refresh)); } };
 }
