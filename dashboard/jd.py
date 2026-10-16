@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 MAX_JD_CHARS = 100_000
 MAX_FIELD_CHARS = 200
 MAX_DRAFTS = 25
-EXTRACT_VERSION = "jx1"
+EXTRACT_VERSION = "jx2"
 EXTRACT_MAX_OUT = 600
 MAX_KEYWORDS = 25
 PLACEHOLDER_TITLE, PLACEHOLDER_COMPANY = "Senior Product Manager", "Example Company"
@@ -47,7 +47,9 @@ EXTRACT_SYSTEM = """You read one job posting and extract basics. Reply with ONLY
 "keywords": ["..."]}
 Rules: use only what the posting says; if the title, company or location is not stated, use an empty \
 string. keywords: the 12 to 25 most important skills, tools, domains and responsibilities named in the \
-posting, each a short phrase of at most 4 words, most important first."""
+posting, each ONE atomic term of 1 to 3 words, as a candidate would write it on a resume (for example \
+"roadmapping", "A/B testing", "RAG", "stakeholder management"). Never join several skills into one \
+item and never add filler words. Most important first."""
 
 
 class ExtractedJD(BaseModel):
