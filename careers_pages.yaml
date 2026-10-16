@@ -1,0 +1,31 @@
+# Public careers page per company that has no Greenhouse/Lever/Ashby board.
+# scout/careers.py reads each page (robots.txt first), detects the ATS and probes its endpoint.
+Freshworks: https://www.freshworks.com/company/careers/
+Chargebee: https://www.chargebee.com/careers/
+Postman: https://www.postman.com/company/careers/
+Razorpay: https://razorpay.com/jobs/
+Juspay: https://juspay.io/careers
+Darwinbox: https://darwinbox.com/careers
+Whatfix: https://whatfix.com/careers/
+MoEngage: https://www.moengage.com/careers/
+CleverTap: https://clevertap.com/careers/
+Capillary Technologies: https://www.capillarytech.com/careers/
+BrowserStack: https://www.browserstack.com/careers
+Delhivery: https://www.delhivery.com/careers
+Shiprocket: https://careers.shiprocket.in/
+Porter: https://porter.in/careers
+Rapido: https://rapido.bike/Home
+Zepto: https://www.zeptonow.com/careers
+Swiggy: https://careers.swiggy.in/
+Zomato: https://www.zomato.com/careers
+Licious: https://www.licious.in/careers
+Country Delight: https://www.countrydelight.in/careers
+DeHaat: https://dehaat.com/careers
+Ninjacart: https://www.ninjacart.com/careers
+Urban Company: https://careers.urbancompany.com/
+Dream11: https://www.dreamsports.group/careers
+Cars24: https://careers.cars24.com/
+Spinny: https://www.spinny.com/careers/
+Ola: https://www.olacabs.com/careers
+Deel: https://jobs.deel.com/
+Remote: https://remote.com/careers

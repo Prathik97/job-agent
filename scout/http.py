@@ -8,7 +8,9 @@ import re
 import time
 from html import unescape
 from pathlib import Path
-from typing import Any, Optional
+from urllib.parse import urlsplit
+from urllib.robotparser import RobotFileParser
+from typing import Any, Dict, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -28,21 +30,63 @@ def make_session(retry_statuses: tuple = (429, 500, 502, 503, 504)) -> requests.
     """Retrying session. Metered APIs pass a list without 429 so a quota error surfaces at once."""
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=1.0, status_forcelist=retry_statuses,
-                  allowed_methods=("GET",), respect_retry_after_header=True)
+                  allowed_methods=("GET", "POST"), respect_retry_after_header=True)
     session.mount("https://", HTTPAdapter(max_retries=retry))
     session.headers["User-Agent"] = USER_AGENT
     return session
 
 
-def get_json(session: requests.Session, url: str, params: Optional[dict] = None,
-             delay: float = MIN_DELAY_SECONDS) -> Optional[Any]:
-    """GET JSON with rate limiting. Returns None on 404 (board does not exist)."""
-    global _last_call
+class RobotsDisallowed(ValueError):
+    """robots.txt forbids fetching this URL for our user agent (or could not be read)."""
+
+
+_robots: Dict[str, Optional[RobotFileParser]] = {}
+
+
+def _throttle(delay: float) -> None:
     wait = delay - (time.monotonic() - _last_call)
     if wait > 0:
         time.sleep(wait)
+
+
+def robots_allowed(session: requests.Session, url: str, delay: float = MIN_DELAY_SECONDS) -> bool:
+    """True if robots.txt for the URL's host allows our user agent. A missing robots.txt (4xx)
+    allows everything; an unreadable one (5xx, network error) is treated as disallowed."""
+    global _last_call
+    parts = urlsplit(url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    if origin not in _robots:
+        parser: Optional[RobotFileParser] = RobotFileParser()
+        _throttle(delay)
+        try:
+            resp = session.get(f"{origin}/robots.txt", timeout=TIMEOUT)
+            if resp.status_code == 200:
+                parser.parse(resp.text.splitlines())
+            elif resp.status_code < 500:
+                parser = None  # no robots.txt: nothing is disallowed
+            else:
+                parser.parse(["User-agent: *", "Disallow: /"])
+        except requests.RequestException as exc:
+            log.warning("could not read robots.txt for %s: %s", origin, exc)
+            parser.parse(["User-agent: *", "Disallow: /"])
+        finally:
+            _last_call = time.monotonic()
+        _robots[origin] = parser
+    parser = _robots[origin]
+    return parser is None or parser.can_fetch(USER_AGENT, url)
+
+
+def request_json(session: requests.Session, method: str, url: str, params: Optional[dict] = None,
+                 body: Optional[dict] = None, delay: float = MIN_DELAY_SECONDS,
+                 respect_robots: bool = False) -> Optional[Any]:
+    """JSON request with rate limiting. Returns None on 404 (board does not exist).
+    With respect_robots, raises RobotsDisallowed instead of fetching a forbidden URL."""
+    global _last_call
+    if respect_robots and not robots_allowed(session, url, delay):
+        raise RobotsDisallowed(f"robots.txt disallows {url}")
+    _throttle(delay)
     try:
-        resp = session.get(url, params=params, timeout=TIMEOUT)
+        resp = session.request(method, url, params=params, json=body, timeout=TIMEOUT)
     finally:
         _last_call = time.monotonic()
     if resp.status_code == 404:
@@ -50,6 +94,34 @@ def get_json(session: requests.Session, url: str, params: Optional[dict] = None,
         return None
     resp.raise_for_status()
     return resp.json()
+
+
+def get_json(session: requests.Session, url: str, params: Optional[dict] = None,
+             delay: float = MIN_DELAY_SECONDS, respect_robots: bool = False) -> Optional[Any]:
+    return request_json(session, "GET", url, params=params, delay=delay,
+                        respect_robots=respect_robots)
+
+
+def post_json(session: requests.Session, url: str, body: dict,
+              delay: float = MIN_DELAY_SECONDS, respect_robots: bool = False) -> Optional[Any]:
+    return request_json(session, "POST", url, body=body, delay=delay,
+                        respect_robots=respect_robots)
+
+
+def load_details(source: str, slug: str, cache_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Per-posting detail cache. Postings are immutable enough that each detail is fetched once."""
+    path = (cache_dir or CACHE_DIR) / f"{source}_{slug}_details.json"
+    try:
+        return json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return {}
+
+
+def save_details(source: str, slug: str, details: Dict[str, Any],
+                 cache_dir: Optional[Path] = None) -> None:
+    folder = cache_dir or CACHE_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{source}_{slug}_details.json").write_text(json.dumps(details))
 
 
 def content_hash(payload: Any) -> str:

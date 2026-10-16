@@ -300,8 +300,12 @@ const COLS = {
   verdict: { key: "verdict", label: "Verdict", value: r => r.verdict, render: verdictChip },
   notes: { key: "notes", label: "Notes", sortable: false, value: r => r.notes.join("; "), render: notesCell },
   posted: { key: "age_days", label: "Posted", num: true, value: r => r.age_days,
-    render: r => r.age_days === null || r.age_days === undefined ? el("span", { class: "chip", text: "unknown age" })
-      : (r.age_days > 60 ? [r.age_days + " days ago", el("span", { class: "note", text: "possibly stale" })] : r.age_days + " days ago") },
+    render: r => {
+      if (r.age_days === null || r.age_days === undefined) return el("span", { class: "chip", text: "unknown age" });
+      const seen = r.hours_at_first_seen === null || r.hours_at_first_seen === undefined ? []
+        : [el("span", { class: "note", text: "first seen " + r.hours_at_first_seen + "h after posting" })];
+      return [r.age_days + " days ago", ...(r.age_days > 60 ? [el("span", { class: "note", text: "possibly stale" })] : []), ...seen];
+    } },
   open: { key: "open", label: "", sortable: false, value: () => "", render: r => openLink(r.url) },
   status: { key: "status", label: "Status", value: r => r.status, render: statusSelect },
   mark: { key: "mark", label: "", sortable: false, value: () => "", render: markApplied },

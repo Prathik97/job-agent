@@ -6,6 +6,7 @@ greenhouse:
   - {slug: gitlab, name: GitLab}
   - {slug: elastic, name: Elastic}
   - {slug: automatticcareers, name: Automattic}
+  - {slug: razorpaysoftwareprivatelimited, name: Razorpay}
 lever:
   - {slug: cred, name: CRED}
   - {slug: meesho, name: Meesho}
@@ -15,3 +16,9 @@ ashby:
   - {slug: notion, name: Notion}
   - {slug: atlan, name: Atlan}
   - {slug: zapier, name: Zapier}
+# Workday: slug is tenant.wdN.site (https://tenant.wdN.myworkdayjobs.com/site)
+workday:
+  - {slug: browserstack.wd3.External, name: BrowserStack}
+# SmartRecruiters: api.smartrecruiters.com robots.txt disallows crawlers, so the scout refuses.
+# Freshworks (slug Freshworks) stays out until that is resolved.
+smartrecruiters: []

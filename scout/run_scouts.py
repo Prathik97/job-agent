@@ -15,7 +15,7 @@ import requests
 import yaml
 from dotenv import load_dotenv
 
-from scout import adzuna, ashby, greenhouse, jsearch, lever
+from scout import adzuna, ashby, greenhouse, jsearch, lever, smartrecruiters, workday
 from scout.http import cache_changed, make_session
 from scout.normalize import AGGREGATOR_SOURCES, merge_sources
 from scout.queries import build_queries
@@ -24,7 +24,8 @@ from scout.usage import USAGE_PATH, UsageTracker
 from screener.cache import atomic_write_json
 
 log = logging.getLogger(__name__)
-SCOUTS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby}
+SCOUTS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby,
+          "workday": workday, "smartrecruiters": smartrecruiters}
 
 
 def load_companies(path: Path) -> List[Tuple[str, str, str]]:
@@ -106,6 +107,10 @@ def run(companies_path: Path, out_path: Path, profile_path: Optional[Path] = Pat
         if old:
             job.also_listed_on = list(dict.fromkeys([*job.also_listed_on, *old.also_listed_on]))
     merged = {j.id: j for j in merge_sources([*found.values(), *agg.values()])}
+    for job in merged.values():  # first_seen_at survives re-runs; only genuinely new jobs get now
+        old = prev_by_id.get(job.id)
+        if old:
+            job.first_seen_at = old.first_seen_at
     if not merged and previous:
         log.warning("scouts returned nothing; keeping previous %s untouched", out_path)
         return {j.id: j for j in previous}

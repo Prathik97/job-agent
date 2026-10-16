@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 from scout.schema import Job
 from screener.titles import normalize_title
 
-ATS_SOURCES = ("greenhouse", "lever", "ashby")
+ATS_SOURCES = ("greenhouse", "lever", "ashby", "workday", "smartrecruiters")
 AGGREGATOR_SOURCES = ("jsearch", "adzuna")
 SOURCE_RANK = {**{s: 0 for s in ATS_SOURCES}, "jsearch": 1, "adzuna": 2}
 

@@ -62,7 +62,7 @@ def test_schema_fields():
     job = ashby.parse(ASHBY_RAW, "Acme")[0]
     assert set(job.model_dump()) == {"id", "source", "title", "company", "location",
                                      "remote_type", "url", "description", "posted_date",
-                                     "fetched_at", "jd_partial", "also_listed_on"}
+                                     "fetched_at", "first_seen_at", "jd_partial", "also_listed_on"}
 
 
 @pytest.mark.parametrize("loc,hint,expected", [

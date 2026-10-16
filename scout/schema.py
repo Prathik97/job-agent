@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 RemoteType = Literal["remote", "hybrid", "onsite", "unknown"]
 
@@ -31,8 +31,15 @@ class Job(BaseModel):
     description: str = ""
     posted_date: Optional[str] = None
     fetched_at: str = Field(default_factory=utcnow_iso)
+    first_seen_at: Optional[str] = None  # when the agent first saw this job; carried across runs
     jd_partial: bool = False  # aggregator descriptions are often truncated
     also_listed_on: List[str] = Field(default_factory=list)  # other sources that listed this job
+
+    @model_validator(mode="after")
+    def _default_first_seen(self) -> "Job":
+        if not self.first_seen_at:
+            self.first_seen_at = self.fetched_at
+        return self
 
     @classmethod
     def build(cls, *, source: str, title: str, company: str, location: str,

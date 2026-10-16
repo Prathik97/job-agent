@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from config import CAPPED_ROLE_FAMILIES, READY_STRETCH_MIN_SCORE
 from dashboard.store import PIPELINE_STATUSES, ApplicationsStore
-from screener.freshness import posting_age_days
+from screener.freshness import hours_old_at_first_seen, posting_age_days
 
 FOLLOW_UP_DAYS = 7
 READY_STATUSES = ("new", "shortlisted")
@@ -81,6 +81,8 @@ def job_row(row: dict) -> Optional[dict]:
     return {"id": row["id"], "company": row.get("company", ""), "title": row.get("title", ""),
             "location": row.get("location", ""), "source": row.get("source", ""),
             "url": safe_url(row.get("url")), "posted_date": row.get("posted_date"),
+            "first_seen_at": row.get("first_seen_at"),
+            "hours_at_first_seen": hours_old_at_first_seen(row.get("posted_date"), row.get("first_seen_at")),
             "tier": screen.get("tier") or "", "role_family": s2.get("role_family") or "", "score": s2["score"], "verdict": s2["verdict"],
             "notes": list(screen.get("notes") or []), "red_flags": list(s2.get("red_flags") or []),
             "also_listed_on": list(row.get("also_listed_on") or []), "orphaned": False,
@@ -100,7 +102,7 @@ def orphan_row(job_id: str, app: dict) -> dict:
     return merge_application({
         "id": job_id, "company": snap.get("company", "(unknown)"), "title": snap.get("title", "(unknown)"),
         "location": "", "source": "", "url": safe_url(snap.get("url")), "posted_date": None,
-        "tier": "", "score": snap.get("score"), "verdict": snap.get("verdict", ""),
+        "first_seen_at": None, "hours_at_first_seen": None, "tier": "", "score": snap.get("score"), "verdict": snap.get("verdict", ""),
         "notes": ["posting no longer in the feeds"], "red_flags": [], "also_listed_on": [],
         "orphaned": True}, app)
 
