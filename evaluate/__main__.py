@@ -52,11 +52,14 @@ def print_report(m: dict, titles: dict) -> None:
         print(f"  - {titles.get(d['id'], d['id'])}: agent {d['agent_verdict']}, you {d['my_label']}, "
               f"reason {d['reason']}" + (f", note: {d['note']}" if d["note"] else ""))
     f = m["filtered"]
-    rate = "n/a" if f["false_drop_rate"] is None else f"{f['false_drop_rate'] * 100:.1f}%"
-    print(f"\nFiltered out: you flagged {f['flagged']} of {f['total']} as wrongly dropped ({rate})")
+    if f["false_drop_rate"] is None:
+        print(f"\nFalse drop rate: not enough reviewed ({f['reviewed']} of {f['min_reviewed']}); "
+              f"{f['flagged']} flagged so far")
+    else:
+        print(f"\nFalse drop rate: {f['false_drop_rate'] * 100:.1f}% "
+              f"({f['flagged']} flagged of {f['reviewed']} reviewed)")
     for cat, r in f["by_reason"].items():
-        if r["flagged"]:
-            print(f"  {cat}: {r['flagged']} of {r['total']}")
+        print(f"  {cat}: {r['flagged']} flagged of {r['reviewed']} reviewed")
 
 
 def main() -> None:

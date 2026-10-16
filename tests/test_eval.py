@@ -57,7 +57,8 @@ def test_label_validation(store):
         with pytest.raises(StoreError):
             store.set("j1", **{"kind": "scored", "snapshot": snap, **kw})
     with pytest.raises(StoreError):
-        store.set("j1", kind="filtered", label="no", snapshot={"drop_reason": "x"})
+        store.set("j1", kind="filtered", label="maybe", snapshot={"drop_reason": "x"})
+    store.set("j1", kind="filtered", label="no", snapshot={"drop_reason": "x"})   # correctly dropped
 
 
 def test_label_write_is_atomic_and_corrupt_file_untouched(store):
@@ -108,22 +109,43 @@ def test_disagreement_without_reason_counted_as_none_given():
     assert m["disagreements_by_reason"] == {"none given": 1}
 
 
-def test_false_drop_rate_overall_and_per_reason():
-    filtered = [{"reason": "title_untiered"}] * 6 + [{"reason": "title_reject:Sales"}] * 2 + \
-               [{"reason": "stage1: US only"}] * 2
-    labels = {"a": dropped("title_untiered"), "b": dropped("title_untiered"), "c": dropped("stage1: US only")}
-    f = compute(labels, filtered_totals(filtered))["filtered"]
-    assert f["flagged"] == 3 and f["total"] == 10 and f["false_drop_rate"] == 0.3
-    assert f["by_reason"]["title_untiered"] == {"flagged": 2, "total": 6, "false_drop_rate": 0.3333}
-    assert f["by_reason"]["stage1"]["false_drop_rate"] == 0.5
+def reviewed(reason, label):
+    return {"kind": "filtered", "label": label, "reason": None, "note": "", "labelled_at": "t",
+            "snapshot": {"drop_reason": reason}}
+
+
+def test_false_drop_rate_is_flagged_over_reviewed_not_all_filtered():
+    # 40 reviewed: 10 title_untiered (3 flagged), 20 stage1 (1 flagged), 10 title_reject (0 flagged)
+    labels = {}
+    for i in range(10):
+        labels[f"u{i}"] = reviewed("title_untiered", "yes" if i < 3 else "no")
+    for i in range(20):
+        labels[f"s{i}"] = reviewed("stage1: US only", "yes" if i < 1 else "no")
+    for i in range(10):
+        labels[f"r{i}"] = reviewed("title_reject:Sales", "no")
+    totals = {"title_untiered": 1500, "stage1": 200, "title_reject": 145}   # must not matter
+    f = compute(labels, totals)["filtered"]
+    assert (f["reviewed"], f["flagged"], f["false_drop_rate"]) == (40, 4, 0.1)
+    assert f["total_filtered_out"] == 1845
+    assert f["by_reason"]["title_untiered"] == {"flagged": 3, "reviewed": 10, "false_drop_rate": 0.3}
+    assert f["by_reason"]["stage1"] == {"flagged": 1, "reviewed": 20, "false_drop_rate": 0.05}
     assert f["by_reason"]["title_reject"]["false_drop_rate"] == 0.0
     assert drop_category("stage1: x") == "stage1"
+
+
+def test_not_enough_reviewed_below_30():
+    labels = {f"a{i}": reviewed("title_untiered", "yes" if i < 5 else "no") for i in range(29)}
+    f = compute(labels)["filtered"]
+    assert f["reviewed"] == 29 and f["flagged"] == 5 and f["false_drop_rate"] is None
+    assert f["by_reason"]["title_untiered"]["false_drop_rate"] is not None  # per-reason n is shown
+    labels["a29"] = reviewed("title_untiered", "no")
+    assert compute(labels)["filtered"]["false_drop_rate"] == round(5 / 30, 4)
 
 
 def test_empty_labels_are_safe():
     m = compute({})
     assert m["agreement"] == {"agree": 0, "total": 0, "rate": None}
-    assert m["filtered"]["false_drop_rate"] is None
+    assert m["filtered"]["false_drop_rate"] is None and m["filtered"]["reviewed"] == 0
 
 
 def test_report_is_aggregate_only(tmp_path):
@@ -178,7 +200,8 @@ def test_label_write_uses_server_side_snapshot(server):
     assert status == 200 and entry["snapshot"] == {"score": 80, "verdict": "apply"} and entry["kind"] == "scored"
     status, _, raw = call(server, "POST", "/api/labels/f1", {"label": "yes", "reason": "role type"}, h)
     assert json.loads(raw)["entry"]["snapshot"] == {"drop_reason": "title_untiered"}
-    assert call(server, "POST", "/api/labels/f1", {"label": "no"}, h)[0] == 400
+    assert call(server, "POST", "/api/labels/f1", {"label": "no"}, h)[0] == 200      # correctly dropped
+    assert call(server, "POST", "/api/labels/f1", {"label": "maybe"}, h)[0] == 400
     assert call(server, "POST", "/api/labels/zzz", {"label": "yes"}, h)[0] == 404
     state = json.loads(call(server, "GET", "/api/state")[2])
     assert set(state["labels"]) == {"j1", "f1"} and state["eval"]["errors"]["agent_apply_but_i_said_no"] == 1
@@ -200,8 +223,9 @@ def test_demo_mode_has_synthetic_labels_and_eval():
             srv.shutdown()
             srv.server_close()
         m = state["eval"]
-        assert state["demo"] and len(state["labels"]) == 37
+        assert state["demo"] and len(state["labels"]) == 66
         assert m["progress"]["labelled"] == 34 and m["agreement"]["rate"] is not None
-        assert m["filtered"]["flagged"] == 3
+        assert m["filtered"]["reviewed"] == 32 and m["filtered"]["flagged"] == 4
+        assert abs(m["filtered"]["false_drop_rate"] - 0.125) < 1e-9
     finally:
         shutil.rmtree(root, ignore_errors=True)

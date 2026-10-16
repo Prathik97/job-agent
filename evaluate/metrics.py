@@ -8,6 +8,7 @@ VERDICT_TO_LABEL = {"apply": "yes", "stretch": "maybe", "skip": "no"}
 VERDICTS = ("apply", "stretch", "skip")
 LABELS = ("yes", "maybe", "no")
 MIN_LABELS = 30
+MIN_REVIEWED = 30
 
 
 def drop_category(reason: str) -> str:
@@ -45,11 +46,13 @@ def compute(labels: Dict[str, dict], totals: Optional[Dict[str, int]] = None) ->
                                   "score": l["snapshot"].get("score"), "reason": reason,
                                   "note": l.get("note", "")})
     n = len(scored)
-    flagged_by = Counter(drop_category(l["snapshot"].get("drop_reason", "")) for _, l in flagged)
-    total_filtered = sum(totals.values())
-    by_reason = {c: {"flagged": flagged_by.get(c, 0), "total": totals.get(c, 0),
-                     "false_drop_rate": _rate(flagged_by.get(c, 0), totals.get(c, 0))}
-                 for c in sorted(set(totals) | set(flagged_by))}
+    reviewed_by = Counter(drop_category(l["snapshot"].get("drop_reason", "")) for _, l in flagged)
+    flagged_by = Counter(drop_category(l["snapshot"].get("drop_reason", ""))
+                         for _, l in flagged if l["label"] == "yes")
+    n_flagged, n_reviewed = sum(flagged_by.values()), len(flagged)
+    by_reason = {c: {"flagged": flagged_by.get(c, 0), "reviewed": reviewed_by.get(c, 0),
+                     "false_drop_rate": _rate(flagged_by.get(c, 0), reviewed_by.get(c, 0))}
+                 for c in sorted(reviewed_by)}
     return {
         "progress": {"labelled": n, "target": MIN_LABELS},
         "agreement": {"agree": agree, "total": n,
@@ -59,8 +62,11 @@ def compute(labels: Dict[str, dict], totals: Optional[Dict[str, int]] = None) ->
                    "agent_apply_but_i_said_no": confusion["apply"]["no"]},
         "disagreements_by_reason": dict(reasons.most_common()),
         "disagreements": disagreements,
-        "filtered": {"flagged": len(flagged), "total": total_filtered,
-                     "false_drop_rate": _rate(len(flagged), total_filtered), "by_reason": by_reason},
+        # false drop rate = flagged / reviewed (jobs you marked either way), shown only once
+        # at least MIN_REVIEWED were reviewed. Per-reason rows always show their own n.
+        "filtered": {"reviewed": n_reviewed, "flagged": n_flagged, "min_reviewed": MIN_REVIEWED,
+                     "false_drop_rate": _rate(n_flagged, n_reviewed) if n_reviewed >= MIN_REVIEWED else None,
+                     "total_filtered_out": sum(totals.values()), "by_reason": by_reason},
     }
 
 

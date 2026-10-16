@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from scout.schema import Job
-from screener.rules import Rules
+from screener.rules import Rules, pm_role_kind
 
 VERDICTS = ("apply", "stretch", "skip")
 
@@ -85,6 +85,8 @@ def build_filtered_out(jobs: List[Job], rules: Rules, screened: Dict[str, dict])
             elif screen["status"] == "skipped_invalid_json":
                 reason = "invalid_json"
         if reason:
+            # eligible for the false-drop review sample: PM-like title or an India location
+            eligible = pm_role_kind(job.title) is not None or rules._india_signal(job.location)
             out.append({"id": job.id, "company": job.company, "title": job.title,
-                        "location": job.location, "reason": reason})
+                        "location": job.location, "reason": reason, "review_eligible": eligible})
     return out

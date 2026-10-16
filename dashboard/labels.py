@@ -35,7 +35,7 @@ class LabelStore:
     def set(self, job_id: str, *, kind: str, label: Optional[str], snapshot: dict,
             reason: Optional[str] = None, note: str = "", now: Optional[str] = None) -> Optional[dict]:
         """Create or update a label; label=None removes it. kind is "scored" or "filtered"
-        (a filtered job can only be labelled "yes", meaning it should have been kept).
+        (a filtered job is "yes" = should have been kept, or "no" = correctly dropped).
         The snapshot is refreshed only when the label value itself changes, so editing the
         reason or note keeps the agent output you originally judged."""
         if kind not in ("scored", "filtered"):
@@ -44,8 +44,8 @@ class LabelStore:
             raise StoreError("bad job id")
         if label is not None and label not in LABELS:
             raise StoreError(f"unknown label {label!r}")
-        if kind == "filtered" and label not in (None, "yes"):
-            raise StoreError("a filtered-out job can only be marked 'should have been kept'")
+        if kind == "filtered" and label not in (None, "yes", "no"):
+            raise StoreError("a filtered-out job is 'yes' (should have been kept) or 'no' (correctly dropped)")
         if reason in ("", None):
             reason = None
         elif reason not in REASONS:

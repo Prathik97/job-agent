@@ -47,11 +47,12 @@ def make_demo_dir() -> Path:
                        "location_status": "confirmed", "stage1": None,
                        "stage2": {"score": score, "verdict": verdict, "role_family": "product",
                                   "reasons": ["demo"], "red_flags": [], "notes": notes}}})
-    for i, reason in enumerate(["title_untiered"] * 6 + ["title_reject:Sales"] * 2 +
-                               ["location_non_india_only"] * 3 + ["stage1: remote US only"] * 2):
-        filtered.append({"id": f"filt{i:04d}", "company": f"{rng.choice(COMPANIES)} F{i}",
-                         "title": rng.choice(["Software Engineer", "Account Executive", "Product Manager"]),
-                         "location": rng.choice(["Austin, TX", "Remote - US", "London"]), "reason": reason})
+    for i, reason in enumerate(["title_untiered"] * 24 + ["title_reject:Sales"] * 8 +
+                               ["location_non_india_only"] * 18 + ["stage1: remote US only"] * 10):
+        title = rng.choice(["Software Engineer", "Account Executive", "Product Manager"])
+        filtered.append({"id": f"filt{i:04d}", "company": f"{rng.choice(COMPANIES)} F{i}", "title": title,
+                         "location": rng.choice(["Austin, TX", "Remote - US", "London", "Bengaluru"]),
+                         "reason": reason, "review_eligible": title == "Product Manager" or rng.random() < 0.3})
     now = datetime.now(timezone.utc)
     runs = []
     for d in range(4, -1, -1):
@@ -92,7 +93,7 @@ def make_demo_dir() -> Path:
 
 
 def demo_labels(rng: random.Random, rows: list, filtered: list, now_s: str) -> dict:
-    """34 synthetic labels (so the Eval headline shows) with some deliberate disagreements."""
+    """34 scored + 32 filtered-out labels (so both Eval headlines show), with some disagreements."""
     labels = {}
     agree = {"apply": "yes", "stretch": "maybe", "skip": "no"}
     reasons = ["location", "seniority", "domain", "role type", "company", "compensation", "other"]
@@ -107,7 +108,10 @@ def demo_labels(rng: random.Random, rows: list, filtered: list, now_s: str) -> d
         labels[row["id"]] = {"kind": "scored", "label": mine, "reason": reason, "note": note,
                              "labelled_at": now_s,
                              "snapshot": {"score": s2["score"], "verdict": s2["verdict"]}}
-    for f in filtered[:3]:
-        labels[f["id"]] = {"kind": "filtered", "label": "yes", "reason": rng.choice(reasons),
-                           "note": "", "labelled_at": now_s, "snapshot": {"drop_reason": f["reason"]}}
+    eligible = [f for f in filtered if f["review_eligible"]][:32]
+    for n, f in enumerate(eligible):
+        wrong = n % 8 == 0   # 4 of 32 flagged as wrongly dropped
+        labels[f["id"]] = {"kind": "filtered", "label": "yes" if wrong else "no",
+                           "reason": rng.choice(reasons) if wrong else None, "note": "",
+                           "labelled_at": now_s, "snapshot": {"drop_reason": f["reason"]}}
     return labels

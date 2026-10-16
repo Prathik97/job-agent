@@ -89,7 +89,7 @@ def test_filtered_out_lists_reasons_and_is_rewritten(paths):
     path = paths.clean / "filtered_out.json"
     rows = json.loads(path.read_text())
     assert [(r["company"], r["reason"]) for r in rows] == [("EngCo", "title_untiered")]
-    assert set(rows[0]) == {"id", "company", "title", "location", "reason"}
+    assert set(rows[0]) == {"id", "company", "title", "location", "reason", "review_eligible"}
     # rewritten from the full scout output: dropping the engineer job empties the list
     keep = [j for j in json.loads(paths.jobs.read_text()) if j["id"] != "c"]
     paths.jobs.write_text(json.dumps(keep))
@@ -106,3 +106,17 @@ def test_stage1_drop_is_in_filtered_out(paths):
     go(paths, FakeClient(replies))
     rows = {r["company"]: r["reason"] for r in json.loads((paths.clean / "filtered_out.json").read_text())}
     assert rows["AmbigCo"] == "stage1: US only in practice"
+
+
+def test_review_eligibility_pm_title_or_india_location(paths):
+    jobs = json.loads(paths.jobs.read_text())
+    mk = lambda jid, title, loc: job(title, loc, "x", jid=jid).model_copy(update={"source": "lever"}).model_dump()
+    jobs += [mk("e1", "Software Engineer", "Austin, TX"),          # neither -> not eligible
+             mk("e2", "Software Engineer", "Bengaluru"),           # India location
+             mk("e3", "Product Manager, Payments", "Austin, TX US only")]   # PM title, dropped on location
+    paths.jobs.write_text(json.dumps(jobs))
+    go(paths, FakeClient([GOOD_S2, GOOD_S2]))
+    rows = {r["id"]: r for r in json.loads((paths.clean / "filtered_out.json").read_text())}
+    assert rows["e1"]["review_eligible"] is False
+    assert rows["e2"]["review_eligible"] is True
+    assert rows["e3"]["review_eligible"] is True

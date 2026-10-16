@@ -13,6 +13,7 @@ let data = null;
 let tab = "ready";
 const ui = {
   sort: { ready: ["score", -1], pipeline: ["applied_at", -1], all: ["score", -1], filtered: ["company", 1] },
+  sample: { on: false, ids: [] },
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
 };
 
@@ -173,20 +174,24 @@ const labelCell = r => {
 };
 
 const keptCell = r => {
-  const cur = data.labels[r.id];
   const box = el("div", { class: "labelbox" });
   const draw = () => {
     const now = data.labels[r.id];
-    const btn = el("button", { class: "btn" + (now ? " primary" : ""), text: now ? "Marked: should have been kept" : "Should have been kept",
+    const mark = (text, value) => el("button", {
+      class: "btn" + (now && now.label === value ? " primary" : ""), text,
       onclick: async () => {
-        try { await saveLabel(r.id, now ? { label: null } : { label: "yes", reason: "" }); draw(); } catch (e) { /* banner */ }
+        const same = now && now.label === value;
+        try {
+          await saveLabel(r.id, same ? { label: null } : { label: value, reason: value === "yes" && now ? now.reason || "" : "" });
+          draw(); if (ui.onReviewed) ui.onReviewed();
+        } catch (e) { /* banner shows the error */ }
       } });
-    const reason = reasonSelect(now && now.reason, !now);
+    const reason = reasonSelect(now && now.reason, false);
     reason.addEventListener("change", async () => {
-      try { await saveLabel(r.id, { label: "yes", reason: reason.value, note: (data.labels[r.id] || {}).note || "" }); }
-      catch (e) { /* banner */ }
+      try { await saveLabel(r.id, { label: "yes", reason: reason.value }); } catch (e) { /* banner */ }
     });
-    box.replaceChildren(btn, now ? reason : "");
+    box.replaceChildren(mark("Correctly dropped", "no"), mark("Should have been kept", "yes"),
+      now && now.label === "yes" ? reason : "");
   };
   draw();
   return box;
@@ -266,8 +271,21 @@ function renderAll() {
     el("span", { class: "count", id: "count" })], draw };
 }
 
+const SAMPLE_SIZE = 50;
+
+function drawSample() {
+  const pool = data.filtered_out.filter(r => r.review_eligible && !data.labels[r.id]);
+  const rnd = new Uint32Array(pool.length);
+  crypto.getRandomValues(rnd);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = rnd[i] % (i + 1);
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  ui.sample.ids = pool.slice(0, SAMPLE_SIZE).map(r => r.id);
+}
+
 function renderFiltered() {
-  const f = ui.filters.filtered;
+  const f = ui.filters.filtered, sample = ui.sample;
   const category = r => String(r.reason || "").split(":")[0];
   const reasons = [...new Set(data.filtered_out.map(category))].sort();
   const cols = [text("company", "Company"), text("title", "Title"), text("location", "Location"),
@@ -275,14 +293,32 @@ function renderFiltered() {
   const search = el("input", { type: "search", placeholder: "Search company, title, location", value: f.q,
     "aria-label": "Search" });
   search.addEventListener("input", () => { f.q = search.value; draw(); });
+  const toggle = el("button", { class: "btn" + (sample.on ? " primary" : ""),
+    text: sample.on ? "Leave review sample" : "Review sample", onclick: () => {
+      sample.on = !sample.on; if (sample.on && !sample.ids.length) drawSample(); showTab("filtered"); } });
+  const redraw = el("button", { class: "btn", text: "Draw new sample", hidden: !sample.on,
+    onclick: () => { drawSample(); showTab("filtered"); } });
   function draw() {
     const q = f.q.trim().toLowerCase();
-    const rows = data.filtered_out.filter(r => (!f.reason || category(r) === f.reason)
-      && (!q || [r.company, r.title, r.location, r.reason].join(" ").toLowerCase().includes(q)));
-    document.getElementById("count").textContent = rows.length + " of " + data.filtered_out.length;
-    swapHolder(buildTable("filtered", cols, rows, draw));
+    let rows;
+    if (sample.on) {
+      const byId = new Map(data.filtered_out.map(r => [r.id, r]));
+      rows = sample.ids.map(id => byId.get(id)).filter(Boolean);
+      const done = rows.filter(r => data.labels[r.id]).length;
+      const eligible = data.filtered_out.filter(r => r.review_eligible).length;
+      document.getElementById("count").textContent = done + " of " + rows.length +
+        " reviewed (sample drawn from " + eligible + " PM-title or India-location drops)";
+    } else {
+      rows = data.filtered_out.filter(r => (!f.reason || category(r) === f.reason)
+        && (!q || [r.company, r.title, r.location, r.reason].join(" ").toLowerCase().includes(q)));
+      document.getElementById("count").textContent = rows.length + " of " + data.filtered_out.length;
+    }
+    swapHolder(rows.length || !sample.on ? buildTable("filtered", cols, rows, draw)
+      : el("div", { class: "empty", text: "No unreviewed eligible jobs left to sample." }));
   }
-  return { toolbar: [search, select(reasons, f.reason, "All reasons", v => { f.reason = v; draw(); }),
+  ui.onReviewed = sample.on ? draw : null;
+  return { toolbar: [toggle, redraw, ...(sample.on ? [] : [search,
+    select(reasons, f.reason, "All reasons", v => { f.reason = v; draw(); })]),
     el("span", { class: "count", id: "count" })], draw };
 }
 
@@ -355,14 +391,18 @@ function renderEval() {
         el("td", { text: d.agent_verdict }), el("td", { class: "num", text: d.score ?? "" }),
         el("td", { text: d.my_label }), el("td", { text: d.reason }), el("td", { text: d.note })))))) : "";
     const f = m.filtered;
-    const fRows = Object.entries(f.by_reason).filter(([, r]) => r.flagged || r.total);
-    const filt = el("div", { class: "section" }, el("h2", { text: "Filtered-out jobs you would have kept" }),
-      el("div", { class: "l", text: f.flagged + " of " + f.total + " flagged (" + pct(f.false_drop_rate) +
-        "). A lower bound unless you have reviewed the whole list." }),
+    const fRows = Object.entries(f.by_reason);
+    const fHead = f.false_drop_rate === null
+      ? el("div", {}, el("div", { class: "headline", text: "Not enough reviewed" }),
+          el("div", { class: "l", text: f.reviewed + " of " + f.min_reviewed + " reviewed so far (" + f.flagged + " flagged). Use Review sample on the Filtered out tab." }))
+      : el("div", {}, el("div", { class: "headline", text: pct(f.false_drop_rate) }),
+          el("div", { class: "l", text: "false drop rate: " + f.flagged + " flagged of " + f.reviewed + " reviewed" }));
+    const filt = el("div", { class: "section" }, el("h2", { text: "False drops (filtered-out jobs)" }), fHead,
+      el("div", { class: "l", text: "n reviewed = " + f.reviewed + ". Rate is flagged divided by reviewed, over the sampled PM-title or India-location drops." }),
       fRows.length ? el("div", { class: "tablewrap" }, el("table", {},
-        el("thead", {}, el("tr", {}, ["Drop reason", "Flagged", "Total", "False drop rate"].map(h => el("th", { text: h })))),
+        el("thead", {}, el("tr", {}, ["Drop reason", "Flagged", "Reviewed", "False drop rate"].map(h => el("th", { text: h })))),
         el("tbody", {}, fRows.map(([c, r]) => el("tr", {}, el("td", { text: c }), el("td", { class: "num", text: r.flagged }),
-          el("td", { class: "num", text: r.total }), el("td", { class: "num", text: pct(r.false_drop_rate) })))))) : "");
+          el("td", { class: "num", text: r.reviewed }), el("td", { class: "num", text: pct(r.false_drop_rate) })))))) : "");
     swapHolder(el("div", {}, prog, cards, el("h2", { text: "Confusion matrix" }), matrix, reasonBars,
       el("h2", { text: "Disagreements" }), dis, filt));
   } };
