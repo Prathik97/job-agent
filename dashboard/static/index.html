@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dashboard-token" content="__TOKEN__">
+<title>Job Agent</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>Job Agent</h1>
+  <span id="demo-badge" hidden>DEMO DATA</span>
+  <span id="banner" role="status"></span>
+</header>
+<section id="strip" aria-label="Summary"></section>
+<nav id="tabs" role="tablist">
+  <button role="tab" data-tab="ready" aria-selected="true">Ready to apply</button>
+  <button role="tab" data-tab="pipeline">Pipeline</button>
+  <button role="tab" data-tab="all">All scored</button>
+  <button role="tab" data-tab="filtered">Filtered out</button>
+  <button role="tab" data-tab="runs">Runs</button>
+</nav>
+<main id="panel"></main>
+<script src="/app.js"></script>
+</body>
+</html>
