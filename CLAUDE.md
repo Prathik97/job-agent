@@ -51,6 +51,7 @@ Keep model IDs in one file, `config.py`, so a change is one edit.
 6. Never commit `profile.yaml`, `master_profile.json`, `data/`, or `output/`. They hold personal data.
 7. Screener output must be valid JSON validated with pydantic. Retry once on invalid JSON, then log and skip.
 8. Every pipeline step must be idempotent. Running it twice must not create duplicate rows.
+9. Never overwrite a good output file with an empty or partial result when a fetch fails. Merge with the previous file instead.
 
 ## Screener rubric (100 points)
 
@@ -63,7 +64,7 @@ Location rule: Bengaluru onsite or hybrid, or fully remote that is open to India
 Work through these one at a time. Each step ends with a runnable command and a test.
 
 1. Scaffold done. `python smoke_test.py` passes.
-2. `scout/greenhouse.py`, `scout/lever.py`, `scout/ashby.py` using public job board JSON endpoints and a `companies.yaml` list.
+2. Done. `scout/greenhouse.py`, `scout/lever.py`, `scout/ashby.py` using public job board JSON endpoints and a `companies.yaml` list.
 3. `scout/adzuna.py` and `scout/jsearch.py` aggregator clients.
 4. `scout/gmail_alerts.py` parsing LinkedIn, Naukri, Instahyre and Wellfound alert emails.
 5. `scout/normalize.py` with dedupe, plus unit tests.
