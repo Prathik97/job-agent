@@ -3,9 +3,15 @@
 greenhouse:
   - {slug: stripe, name: Stripe}
   - {slug: groww, name: Groww}
+  - {slug: gitlab, name: GitLab}
+  - {slug: elastic, name: Elastic}
+  - {slug: automatticcareers, name: Automattic}
 lever:
   - {slug: cred, name: CRED}
   - {slug: meesho, name: Meesho}
+  - {slug: zeta, name: Zeta}
 ashby:
   - {slug: ramp, name: Ramp}
   - {slug: notion, name: Notion}
+  - {slug: atlan, name: Atlan}
+  - {slug: zapier, name: Zapier}
