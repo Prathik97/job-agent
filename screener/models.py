@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 Verdict = Literal["apply", "stretch", "skip"]
 
@@ -21,8 +21,14 @@ class RuleResult(BaseModel):
 
 
 class Stage1Decision(BaseModel):
-    keep: bool
+    decision: Literal["keep", "drop", "unsure"]
     reason: str = ""
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def keep(self) -> bool:
+        """'unsure' counts as keep: only an explicit drop removes a job."""
+        return self.decision != "drop"
 
 
 class Stage2Raw(BaseModel):

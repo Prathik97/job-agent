@@ -37,7 +37,7 @@ def load_jobs(path: Path) -> List[Job]:
 
 
 def key1(job: Job) -> str:
-    return cache_key("stage1", HAIKU, stage1.VERSION, job.id, job.description)
+    return cache_key("stage1", HAIKU, stage1.VERSION, job.id, job.description, stage1.PROMPT_HASH)
 
 
 def key2(job: Job, ctx: stage2.ScoringContext) -> str:

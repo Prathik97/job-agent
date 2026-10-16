@@ -10,12 +10,12 @@ from dataclasses import dataclass
 from typing import Dict
 
 from scout.schema import Job
-from config import SONNET, STAGE2_MAX_CHARS, STRETCH_MIN_SCORE
+from config import SONNET, STAGE2_MAX_CHARS
 from screener.llm import Usage, ask_json
 from screener.models import RuleResult, Stage2Raw, Stage2Result
 from screener.text import sha, truncate
 
-VERSION = "s2v1"
+VERSION = "s2v2"
 MAX_OUT_TOKENS = 700
 
 RUBRIC_HELP = {
@@ -32,13 +32,15 @@ RUBRIC_HELP = {
 class ScoringContext:
     weights: Dict[str, int]
     shortlist_min: int
+    stretch_min: int
     system: str
-    hash: str
+    hash: str  # covers the system prompt, user template and truncation limit
 
 
 def build_context(profile: dict) -> ScoringContext:
     weights = dict(profile["scoring"]["weights"])
-    shortlist_min = profile["scoring"]["thresholds"]["shortlist_min_score"]
+    thresholds = profile["scoring"]["thresholds"]
+    shortlist_min, stretch_min = thresholds["shortlist_min_score"], thresholds["stretch_min_score"]
     summary = {
         "years_experience": profile["candidate"]["years_experience"],
         "target_titles": profile["titles"],
@@ -59,26 +61,39 @@ def build_context(profile: dict) -> ScoringContext:
         f"numbers within each range:\n{rubric}\n\nBe calibrated and strict; a perfect match is rare. "
         "Base everything on the posting text. List 2 to 5 concrete reasons and any red flags "
         "(for example location limits, junior or too-senior scope, sales-in-disguise).\n"
+        "Seniority: if the posting states no years of experience, do NOT list that as a red flag when "
+        "the rules found a title tier of A, B or C; use the title tier to judge seniority_fit "
+        "(A and B are good fits, C is a stretch upward). Only mention missing years for untiered titles.\n"
         'Reply with ONLY a JSON object: {"scores": {' + keys + '}, "reasons": ["..."], '
         '"red_flags": ["..."]}'
     )
-    return ScoringContext(weights, shortlist_min, system, sha(system))
+    return ScoringContext(weights, shortlist_min, stretch_min, system,
+                          sha(system + USER_TEMPLATE + str(STAGE2_MAX_CHARS)))
+
+
+USER_TEMPLATE = """Title: {title}
+Company: {company}
+Location: {location}
+Remote type: {remote_type}
+URL: {url}
+Rules found: title tier={tier}, years required={years}, flags={flags}
+
+Description:
+{description}"""
 
 
 def build_user(job: Job, rule: RuleResult) -> str:
     years = rule.years_required if rule.years_required is not None else "not stated"
-    return (
-        f"Title: {job.title}\nCompany: {job.company}\nLocation: {job.location or 'not stated'}\n"
-        f"Remote type: {job.remote_type}\nURL: {job.url}\n"
-        f"Rules found: title tier={rule.tier}, years required={years}, flags={rule.flags or 'none'}\n\n"
-        f"Description:\n{truncate(job.description, STAGE2_MAX_CHARS)}"
-    )
+    return USER_TEMPLATE.format(
+        title=job.title, company=job.company, location=job.location or "not stated",
+        remote_type=job.remote_type, url=job.url, tier=rule.tier, years=years,
+        flags=rule.flags or "none", description=truncate(job.description, STAGE2_MAX_CHARS))
 
 
-def verdict_for(score: int, shortlist_min: int) -> str:
+def verdict_for(score: int, shortlist_min: int, stretch_min: int) -> str:
     if score >= shortlist_min:
         return "apply"
-    return "stretch" if score >= STRETCH_MIN_SCORE else "skip"
+    return "stretch" if score >= stretch_min else "skip"
 
 
 def make_validator(ctx: ScoringContext):
@@ -95,7 +110,7 @@ def make_validator(ctx: ScoringContext):
         total = sum(sub.values())
         return Stage2Result(score=total, subscores=sub, reasons=raw.reasons,
                             red_flags=raw.red_flags,
-                            verdict=verdict_for(total, ctx.shortlist_min))
+                            verdict=verdict_for(total, ctx.shortlist_min, ctx.stretch_min))
     return validate
 
 

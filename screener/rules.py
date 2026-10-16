@@ -15,7 +15,18 @@ from screener.models import RuleResult
 # Reject keywords that only apply when the title has no "product" word, so
 # "Product Manager, Salesforce Integrations" or "Product Manager, Sales Tools" survive.
 CONDITIONAL_REJECTS = {"sales", "account manager"}
-UNTIERED_HINTS = ("product", "program", "project")
+
+# Untiered titles only reach stage 1 if they look like a PM-type role. STRONG forms are
+# unambiguous; WEAK forms ("product lead", "lead product ...") also match design/accounting
+# titles, so the blocklist is applied to them.
+PM_STRONG = [r"(?:product|program|project)s?\s+managers?", r"tpm"]
+PM_WEAK = [r"product\s+leads?", r"lead\s+products?", r"head\s+of\s+products?",
+           r"(?:director|vp|svp|avp|vice\s+president)\W+(?:of\W+)?products?",
+           r"product\s+owners?"]
+# Titles from other functions. Phrases are whole-word and plural-tolerant.
+BLOCKLIST = ["engineering manager", "engineer", "designer", "sales", "account executive",
+             "accountant", "accounting", "support specialist", "support operations",
+             "support engineer", "product support", "recruiter", "marketing"]
 
 _WORDS = {w: i for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen "
@@ -29,9 +40,30 @@ _REMOTE = re.compile(r"\b(remote|anywhere|worldwide|global|distributed)\b", re.I
 
 
 def phrase_re(phrase: str) -> re.Pattern:
-    """Whole-word, case-insensitive match for a phrase (spaces match any whitespace)."""
-    body = r"\s+".join(re.escape(p) for p in phrase.split())
+    """Whole-word, case-insensitive phrase match. Spaces match any whitespace and each
+    alphabetic word may be plural ("Product" also matches "Products")."""
+    def word(w: str) -> str:
+        return re.escape(w) + ("s?" if w[-1].isalpha() else "")
+    body = r"\s+".join(word(p) for p in phrase.split())
     return re.compile(r"(?<![A-Za-z0-9])" + body + r"(?![A-Za-z0-9])", re.I)
+
+
+def _raw_re(pattern: str) -> re.Pattern:
+    return re.compile(r"(?<![A-Za-z0-9])(?:" + pattern + r")(?![A-Za-z0-9])", re.I)
+
+
+_STRONG_RE = [_raw_re(p) for p in PM_STRONG]
+_WEAK_RE = [_raw_re(p) for p in PM_WEAK]
+_BLOCK_RE = [phrase_re(b) for b in BLOCKLIST]
+
+
+def pm_role_kind(title: str) -> Optional[str]:
+    """'strong', 'weak' or None: does the title look like a PM-type role?"""
+    if any(r.search(title) for r in _STRONG_RE):
+        return "strong"
+    if any(r.search(title) for r in _WEAK_RE):
+        return "weak"
+    return None
 
 
 def _to_int(token: str) -> int:
@@ -135,8 +167,11 @@ class Rules:
 
         tier = self.title_tier(job.title)
         if tier is None:
-            if not any(phrase_re(h).search(job.title) for h in UNTIERED_HINTS):
+            kind = pm_role_kind(job.title)
+            if kind is None:
                 return drop("title_untiered")
+            if kind == "weak" and any(b.search(job.title) for b in _BLOCK_RE):
+                return drop("title_blocklist")
             tier = "untiered"
 
         text = f"{job.location}\n{job.description}"

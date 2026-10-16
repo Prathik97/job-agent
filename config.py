@@ -18,9 +18,7 @@ STAGE1_MAX_CHARS = 3000
 STAGE2_MAX_CHARS = 8000
 HEAD_FRACTION = 0.7
 
-# Verdict mapping for stage 2: >= shortlist_min_score (from profile.yaml) is "apply",
-# >= STRETCH_MIN_SCORE is "stretch", below is "skip".
-STRETCH_MIN_SCORE = 55
+# Verdict thresholds (shortlist_min_score, stretch_min_score) live in profile.yaml.
 
 # Dry-run assumption only: share of stage 1 jobs expected to be kept.
 ASSUMED_STAGE1_KEEP_RATE = 0.5

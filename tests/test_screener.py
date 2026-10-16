@@ -14,12 +14,14 @@ from screener.text import truncate
 PROFILE = {
     "candidate": {"years_experience": 7},
     "titles": {
-        "tier_a": ["Senior Product Manager", "Sr. Product Manager", "Staff Product Manager", "SPM"],
+        "tier_a": ["Senior Product Manager", "Sr. Product Manager", "Staff Product Manager", "SPM",
+                   "Project Manager", "Senior Project Manager", "Program Manager",
+                   "Technical Program Manager"],
         "tier_b": ["Principal Product Manager", "Group Product Manager"],
         "tier_c": ["VP Product", "Director of Product"],
     },
     "title_reject_keywords": ["Product Marketing", "Sales", "Account Manager", "Intern", "APM",
-                              "Associate Product Manager", "Project Manager", "Program Manager"],
+                              "Associate Product Manager"],
     "experience": {"min_required_in_jd": 5, "stretch_if_jd_requires_over": 9,
                    "hard_reject_if_jd_requires_over": 14},
     "location": {"onsite_or_hybrid_cities": ["Bengaluru", "Bangalore"], "remote_allowed": True,
@@ -31,7 +33,7 @@ PROFILE = {
     "company_preferences": {"stage": ["Series B"]},
     "scoring": {"weights": {"role_and_title_fit": 25, "domain_fit": 20, "seniority_fit": 20,
                             "location_fit": 15, "company_and_growth": 10, "comp_signal": 10},
-                "thresholds": {"shortlist_min_score": 70}},
+                "thresholds": {"shortlist_min_score": 70, "stretch_min_score": 55}},
 }
 
 
@@ -61,7 +63,7 @@ def test_salesforce_product_manager_never_rejected(rules):
     ("Senior Product Marketing Manager", True),   # always rejected
     ("Intern, Product", True), ("Internal Tools Product Manager", False),  # whole words only
     ("APM", True), ("Senior Product Manager", False),
-    ("Technical Program Manager", True),
+    ("Technical Program Manager", False), ("Project Manager, Platform", False),  # no longer rejected
 ])
 def test_reject_keywords_whole_word(rules, title, rejected):
     assert (rules.title_reject(title) is not None) is rejected
@@ -81,7 +83,7 @@ def test_untiered_routing(rules):
     assert plain.status == "stage1" and plain.tier == "untiered" and "untiered" in plain.flags
     assert rules.evaluate(job("Software Engineer")).drop_reason == "title_untiered"
     assert rules.evaluate(job("Product Lead, Growth")).status == "stage1"
-    assert rules.evaluate(job("Delivery Lead (Program)")).status == "stage1"
+    assert rules.evaluate(job("Delivery Lead (Program)")).drop_reason == "title_untiered"
 
 
 def test_tiered_bengaluru_goes_straight_to_stage2(rules):
@@ -162,14 +164,14 @@ GOOD_S2 = json.dumps({"scores": {"role_and_title_fit": 22, "domain_fit": 15, "se
 
 
 def test_extract_json_tolerates_fences():
-    assert extract_json('```json\n{"keep": true}\n```') == {"keep": True}
+    assert extract_json('```json\n{"decision": "keep"}\n```') == {"decision": "keep"}
     with pytest.raises(ValueError):
         extract_json("no json here")
 
 
 def test_stage1_valid_and_model_id(rules):
     from config import HAIKU
-    client = FakeClient(['{"keep": true, "reason": "ok"}'])
+    client = FakeClient(['{"decision": "keep", "reason": "ok"}'])
     d = stage1.decide(client, job("Product Manager"), rules.evaluate(job("Product Manager")), Usage())
     assert d.keep is True and client.calls[0]["model"] == HAIKU
 
@@ -182,7 +184,7 @@ def test_stage1_prompt_includes_rule_years_and_flags(rules):
 
 
 def test_invalid_json_retries_once_then_succeeds(rules):
-    client = FakeClient(["garbage", '{"keep": false, "reason": "junior"}'])
+    client = FakeClient(["garbage", '{"decision": "drop", "reason": "junior"}'])
     d = stage1.decide(client, job("Product Manager"), rules.evaluate(job("Product Manager")), Usage())
     assert d.keep is False and len(client.calls) == 2
 
@@ -205,7 +207,7 @@ def test_stage2_score_computed_in_code(rules):
 
 @pytest.mark.parametrize("score,verdict", [(85, "apply"), (70, "apply"), (60, "stretch"), (30, "skip")])
 def test_verdict_thresholds(score, verdict):
-    assert stage2.verdict_for(score, 70) == verdict
+    assert stage2.verdict_for(score, 70, 55) == verdict
 
 
 def test_stage2_rejects_out_of_range_or_missing_categories(rules):
@@ -253,7 +255,7 @@ def test_dry_run_makes_no_calls_and_writes_nothing(env):
 
 
 def test_full_run_then_rerun_spends_nothing(env):
-    client = FakeClient([GOOD_S2, '{"keep": true, "reason": "ok"}', GOOD_S2])
+    client = FakeClient([GOOD_S2, '{"decision": "keep", "reason": "ok"}', GOOD_S2])
     go(env, client)
     rows = json.loads(env.out.read_text())
     assert {r["id"] for r in rows} == {"a", "b"}
@@ -267,7 +269,7 @@ def test_full_run_then_rerun_spends_nothing(env):
 
 
 def test_description_change_busts_cache(env):
-    client = FakeClient([GOOD_S2, '{"keep": true, "reason": "ok"}', GOOD_S2])
+    client = FakeClient([GOOD_S2, '{"decision": "keep", "reason": "ok"}', GOOD_S2])
     go(env, client)
     jobs = json.loads(env.jobs.read_text())
     jobs[0]["description"] = "Completely new description"
@@ -278,7 +280,7 @@ def test_description_change_busts_cache(env):
 
 
 def test_stage1_drop_is_recorded_and_skips_stage2(env):
-    client = FakeClient([GOOD_S2, '{"keep": false, "reason": "junior"}'])
+    client = FakeClient([GOOD_S2, '{"decision": "drop", "reason": "junior"}'])
     go(env, client)
     rows = {r["id"]: r for r in json.loads(env.out.read_text())}
     assert rows["b"]["screen"]["status"] == "dropped_stage1"
@@ -311,7 +313,7 @@ def test_api_error_not_cached_and_does_not_clobber_output(env):
         messages = SimpleNamespace(create=lambda **kw: (_ for _ in ()).throw(
             anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))))
 
-    go(env, FakeClient([GOOD_S2, '{"keep": true, "reason": "ok"}', GOOD_S2]))
+    go(env, FakeClient([GOOD_S2, '{"decision": "keep", "reason": "ok"}', GOOD_S2]))
     before = env.out.read_text()
     jobs = json.loads(env.jobs.read_text())
     jobs[0]["description"] = "changed so cache misses"
@@ -324,3 +326,122 @@ def test_cache_corrupt_file_starts_empty(tmp_path):
     p = tmp_path / "c.json"
     p.write_text("{not json")
     assert Cache(p).data == {}
+
+
+# ---------- tuning round: profile-driven stretch, PM-role pattern, blocklist, prompts, cache ----------
+
+def test_stretch_min_comes_from_profile_not_config():
+    import config
+    assert not hasattr(config, "STRETCH_MIN_SCORE")
+    ctx = stage2.build_context(PROFILE)
+    assert (ctx.shortlist_min, ctx.stretch_min) == (70, 55)
+    custom = json.loads(json.dumps(PROFILE))
+    custom["scoring"]["thresholds"]["stretch_min_score"] = 40
+    assert stage2.build_context(custom).stretch_min == 40
+    broken = json.loads(json.dumps(PROFILE))
+    del broken["scoring"]["thresholds"]["stretch_min_score"]
+    with pytest.raises(KeyError):
+        stage2.build_context(broken)
+
+
+def test_program_and_project_manager_are_tier_a_not_rejected(rules):
+    for t in ("Program Manager", "Technical Program Manager", "Senior Project Manager"):
+        assert rules.title_reject(t) is None and rules.title_tier(t) == "A"
+    assert rules.evaluate(job("Technical Program Manager")).status == "stage2"
+
+
+def test_salesforce_product_manager_kept_and_reaches_stage1(rules):
+    r = rules.evaluate(job("Product Manager, Salesforce Integrations"))
+    assert r.status == "stage1" and r.tier == "untiered"
+
+
+def test_plural_titles_match(rules):
+    assert rules.evaluate(job("Products Manager")).status == "stage1"
+    assert rules.title_tier("Senior Products Managers") == "A"
+    assert phrase_re("Product").search("Billing Products") and not phrase_re("Product").search("Production")
+
+
+@pytest.mark.parametrize("title", [
+    "Product Manager", "Product Manager II", "Product Lead, Growth", "Lead Product, Payments",
+    "Head of Products", "Director - Product", "VP of Product", "Vice President, Product",
+    "Product Owner", "TPM", "Program Manager, Ops", "Project Manager",
+])
+def test_pm_role_pattern_accepts(title):
+    from screener.rules import pm_role_kind
+    assert pm_role_kind(title) is not None
+
+
+@pytest.mark.parametrize("title", [
+    "Product Designer", "Product Analytics Lead", "Product Support Specialist",
+    "Engineering Manager, Billing Products", "Account Executive Product - Tax",
+    "Product Operations Specialist", "Production Manager",
+])
+def test_non_pm_titles_never_reach_stage1(rules, title):
+    assert rules.evaluate(job(title)).status == "drop"
+
+
+def test_blocklist_catches_weak_pattern_titles(rules):
+    assert rules.evaluate(job("Lead Product Designer")).drop_reason == "title_blocklist"
+    assert rules.evaluate(job("Lead Product Accountant")).drop_reason == "title_blocklist"
+    # strong PM form is exempt from the blocklist
+    assert rules.evaluate(job("Product Manager, Customer Support Platform")).status == "stage1"
+
+
+@pytest.mark.parametrize("loc", ["N/A", "n/a", "", "   ", "TBD"])
+def test_unknown_location_is_never_ineligible(rules, loc):
+    assert rules.location_class(job(location=loc)) == "ambiguous"
+    assert rules.evaluate(job("Senior Product Manager", location=loc)).status == "stage1"
+
+
+def test_stage1_decision_unsure_counts_as_keep():
+    from screener.models import Stage1Decision
+    assert Stage1Decision(decision="unsure").keep is True
+    assert Stage1Decision(decision="keep").keep is True
+    assert Stage1Decision(decision="drop").keep is False
+    assert Stage1Decision(decision="drop").model_dump()["keep"] is False
+    with pytest.raises(ValueError):
+        Stage1Decision.model_validate({"decision": "maybe"})
+
+
+def test_stage1_prompt_rules():
+    text = stage1.SYSTEM
+    assert "NEVER drop because of years" in text
+    assert "NEVER infer anything from where the company is headquartered" in text
+    assert "unknown, missing" in text and "keep" in text
+    assert "unsure" in text
+
+
+def test_stage2_prompt_missing_years_not_a_red_flag_for_tiered_titles():
+    system = stage2.build_context(PROFILE).system
+    assert "do NOT list that as a red flag" in system and "title tier" in system
+
+
+def test_cache_key_changes_with_prompt(monkeypatch, env):
+    j = job(jid="z")
+    k1 = run_screener.key1(j)
+    monkeypatch.setattr(stage1, "PROMPT_HASH", "different-prompt")
+    assert run_screener.key1(j) != k1
+    ctx = stage2.build_context(PROFILE)
+    k2 = run_screener.key2(j, ctx)
+    changed = json.loads(json.dumps(PROFILE))
+    changed["domains_ranked"] = ["Something else"]
+    assert run_screener.key2(j, stage2.build_context(changed)) != k2
+
+
+def test_prompt_change_causes_cache_miss_and_new_call(env, monkeypatch):
+    go(env, FakeClient([GOOD_S2, '{"decision": "keep", "reason": "ok"}', GOOD_S2]))
+    quiet = FakeClient([])
+    go(env, quiet)
+    assert quiet.calls == []                                   # same prompts: all cached
+    monkeypatch.setattr(stage1, "PROMPT_HASH", "edited-stage1-prompt")
+    client = FakeClient(['{"decision": "keep", "reason": "ok"}'])
+    go(env, client)
+    assert len(client.calls) == 1                              # only stage 1 re-asked
+    assert client.calls[0]["model"].startswith("claude-haiku")
+
+
+def test_stage1_unsure_flows_to_stage2(env):
+    client = FakeClient([GOOD_S2, '{"decision": "unsure", "reason": "unclear"}', GOOD_S2])
+    go(env, client)
+    rows = {r["id"]: r for r in json.loads(env.out.read_text())}
+    assert rows["b"]["screen"]["status"] == "scored"
