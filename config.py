@@ -4,12 +4,12 @@ HAIKU = "claude-haiku-4-5-20251001"   # stage 1 filter, email parsing
 SONNET = "claude-sonnet-5-5"          # stage 2 scoring, tailoring
 OPUS = "claude-opus-5-5"              # polish for jobs scoring 85+
 
-# USD per million tokens (input, output). Used only for dry-run/run cost estimates.
-# Verify against current Anthropic pricing before trusting the totals.
+# USD per million tokens (input, output), base rates without caching or batch discounts.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-10-16).
 PRICES = {
     HAIKU: (1.00, 5.00),
-    SONNET: (3.00, 15.00),
-    OPUS: (15.00, 75.00),
+    SONNET: (2.00, 10.00),
+    OPUS: (4.00, 20.00),
 }
 
 # Description truncation. Long text keeps the first 70% and last 30% of the budget,

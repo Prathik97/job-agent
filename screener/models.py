@@ -6,6 +6,8 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, computed_field
 
 Verdict = Literal["apply", "stretch", "skip"]
+RoleFamily = Literal["product", "tech_program", "software_project", "physical_ops", "other"]
+LocationStatus = Literal["confirmed", "unknown"]
 
 
 class RuleResult(BaseModel):
@@ -13,6 +15,7 @@ class RuleResult(BaseModel):
     drop_reason: Optional[str] = None
     tier: Optional[str] = None          # "A", "B", "C" or "untiered"
     years_required: Optional[int] = None
+    location_status: LocationStatus = "unknown"
     flags: List[str] = Field(default_factory=list)
 
     @property
@@ -33,6 +36,7 @@ class Stage1Decision(BaseModel):
 
 class Stage2Raw(BaseModel):
     """What the model returns. The final score is computed in code, not trusted."""
+    role_family: RoleFamily
     scores: Dict[str, float]
     reasons: List[str] = Field(default_factory=list)
     red_flags: List[str] = Field(default_factory=list)
@@ -41,6 +45,7 @@ class Stage2Raw(BaseModel):
 class Stage2Result(BaseModel):
     score: int = Field(ge=0, le=100)
     subscores: Dict[str, int]
+    role_family: RoleFamily
     reasons: List[str]
     red_flags: List[str]
-    verdict: Verdict
+    verdict: Verdict  # as scored; run_screener applies the caps (see stage2.apply_caps)

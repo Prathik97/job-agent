@@ -15,7 +15,7 @@ from screener.llm import Usage, ask_json
 from screener.models import RuleResult, Stage2Raw, Stage2Result
 from screener.text import sha, truncate
 
-VERSION = "s2v2"
+VERSION = "s2v3"
 MAX_OUT_TOKENS = 700
 
 RUBRIC_HELP = {
@@ -61,10 +61,15 @@ def build_context(profile: dict) -> ScoringContext:
         f"numbers within each range:\n{rubric}\n\nBe calibrated and strict; a perfect match is rare. "
         "Base everything on the posting text. List 2 to 5 concrete reasons and any red flags "
         "(for example location limits, junior or too-senior scope, sales-in-disguise).\n"
-        "Seniority: if the posting states no years of experience, do NOT list that as a red flag when "
-        "the rules found a title tier of A, B or C; use the title tier to judge seniority_fit "
-        "(A and B are good fits, C is a stretch upward). Only mention missing years for untiered titles.\n"
-        'Reply with ONLY a JSON object: {"scores": {' + keys + '}, "reasons": ["..."], '
+        "Seniority: for product-manager titles with a tier of A, B or C, missing years of experience is "
+        "NOT a red flag; use the tier to judge seniority_fit (A and B are good fits, C is a stretch "
+        "upward). For Project Manager and Program Manager titles, give NO seniority credit for the "
+        "title tier alone; judge seniority_fit only from the JD (years, scope, team size, ownership).\n"
+        "Also classify role_family as exactly one of: product (product management), tech_program "
+        "(technical program management for software or technology), software_project (project "
+        "management of software or IT delivery), physical_ops (physical infrastructure, warehouses, "
+        "construction, facilities, hardware or logistics operations), other (anything else).\n"
+        'Reply with ONLY a JSON object: {"role_family": "<one of the five>", "scores": {' + keys + '}, "reasons": ["..."], '
         '"red_flags": ["..."]}'
     )
     return ScoringContext(weights, shortlist_min, stretch_min, system,
@@ -108,7 +113,7 @@ def make_validator(ctx: ScoringContext):
                 raise ValueError(f"{key}={val} outside 0..{weight}")
             sub[key] = round(val)
         total = sum(sub.values())
-        return Stage2Result(score=total, subscores=sub, reasons=raw.reasons,
+        return Stage2Result(score=total, subscores=sub, role_family=raw.role_family, reasons=raw.reasons,
                             red_flags=raw.red_flags,
                             verdict=verdict_for(total, ctx.shortlist_min, ctx.stretch_min))
     return validate
@@ -117,3 +122,28 @@ def make_validator(ctx: ScoringContext):
 def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Usage) -> Stage2Result:
     return ask_json(client, SONNET, ctx.system, build_user(job, rule),
                     make_validator(ctx), usage, MAX_OUT_TOKENS)
+
+
+CAPPED_FAMILIES = ("physical_ops", "other")
+
+
+def apply_caps(entry: dict, rule: RuleResult) -> dict:
+    """Final verdict from a cached (uncapped) stage 2 entry plus rule facts.
+
+    Caps are applied here, not before caching, so changing a rule never needs a re-score.
+    Returns a copy with `verdict` (capped), `uncapped_verdict` and `notes`.
+    """
+    out = dict(entry)
+    out["uncapped_verdict"] = entry["verdict"]
+    notes = []
+    family = entry.get("role_family")
+    if family in CAPPED_FAMILIES:
+        notes.append(f"verdict capped at stretch: role_family={family}")
+        if out["verdict"] == "apply":
+            out["verdict"] = "stretch"
+    if rule.location_status != "confirmed":
+        notes.append("verify location")
+        if out["verdict"] == "apply":
+            out["verdict"] = "stretch"
+    out["notes"] = notes
+    return out

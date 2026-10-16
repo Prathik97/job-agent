@@ -112,7 +112,8 @@ def log_funnel(f: dict, limit: Optional[int]) -> None:
 def _record(job: Job, rule: RuleResult, status: str, s1: Optional[dict], s2: Optional[dict]) -> dict:
     return {**job.model_dump(), "screen": {
         "status": status, "tier": rule.tier, "years_required": rule.years_required,
-        "flags": rule.flags, "stage1": s1, "stage2": s2,
+        "flags": rule.flags, "location_status": rule.location_status,
+        "notes": (s2 or {}).get("notes", []), "stage1": s1, "stage2": s2,
         "screened_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}}
 
 
@@ -156,8 +157,10 @@ def screen(candidates: List[Candidate], cache: Cache, ctx: stage2.ScoringContext
                                    lambda j=job, r=rule: stage2.score_job(client, j, r, ctx, usage))
         if s2_entry is None:
             continue
-        status = "skipped_invalid_json" if s2_entry.get("failed") else "scored"
-        out[job.id] = _record(job, rule, status, s1_entry, s2_entry)
+        if s2_entry.get("failed"):
+            out[job.id] = _record(job, rule, "skipped_invalid_json", s1_entry, s2_entry)
+        else:
+            out[job.id] = _record(job, rule, "scored", s1_entry, stage2.apply_caps(s2_entry, rule))
     return out
 
 

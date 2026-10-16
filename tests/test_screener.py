@@ -122,7 +122,7 @@ def test_location_reject_phrase(rules):
     ("Bengaluru, Karnataka", "hybrid", "ok"), ("Remote - India", "remote", "ok"),
     ("Remote", "remote", "ambiguous"), ("N/A", "unknown", "ambiguous"),
     ("India", "unknown", "ambiguous"), ("London", "unknown", "bad"),
-    ("Mumbai, India", "onsite", "bad"), ("San Francisco, Remote", "unknown", "ambiguous"),
+    ("Mumbai, India", "onsite", "bad"), ("San Francisco, Remote", "unknown", "non_india"),
 ])
 def test_location_class(rules, loc, remote, expected):
     assert rules.location_class(job(location=loc, remote=remote)) == expected
@@ -158,7 +158,7 @@ class FakeClient:
                                usage=SimpleNamespace(input_tokens=1000, output_tokens=100))
 
 
-GOOD_S2 = json.dumps({"scores": {"role_and_title_fit": 22, "domain_fit": 15, "seniority_fit": 16,
+GOOD_S2 = json.dumps({"role_family": "product", "scores": {"role_and_title_fit": 22, "domain_fit": 15, "seniority_fit": 16,
                                  "location_fit": 15, "company_and_growth": 7, "comp_signal": 5},
                       "reasons": ["fits"], "red_flags": []})
 
@@ -413,7 +413,7 @@ def test_stage1_prompt_rules():
 
 def test_stage2_prompt_missing_years_not_a_red_flag_for_tiered_titles():
     system = stage2.build_context(PROFILE).system
-    assert "do NOT list that as a red flag" in system and "title tier" in system
+    assert "is NOT a red flag" in system and "tier" in system
 
 
 def test_cache_key_changes_with_prompt(monkeypatch, env):
@@ -445,3 +445,135 @@ def test_stage1_unsure_flows_to_stage2(env):
     go(env, client)
     rows = {r["id"]: r for r in json.loads(env.out.read_text())}
     assert rows["b"]["screen"]["status"] == "scored"
+
+
+# ---------- round 3: role_family, location_status, non-India drop, pricing ----------
+
+def test_prices_match_official_page_and_cite_source():
+    import config
+    assert config.PRICES[config.HAIKU] == (1.00, 5.00)
+    assert config.PRICES[config.SONNET] == (2.00, 10.00)
+    assert config.PRICES[config.OPUS] == (4.00, 20.00)
+    src = open(config.__file__).read()
+    assert "platform.claude.com/docs/en/about-claude/pricing" in src and "2026-10-16" in src
+
+
+def test_stage2_prompt_asks_for_role_family_and_no_title_credit_for_project_titles():
+    system = stage2.build_context(PROFILE).system
+    for fam in ("product", "tech_program", "software_project", "physical_ops", "other"):
+        assert fam in system
+    assert "role_family" in system
+    assert "Project Manager and Program Manager titles, give NO seniority credit" in system
+
+
+def test_role_family_validated():
+    ctx = stage2.build_context(PROFILE)
+    validate = stage2.make_validator(ctx)
+    assert validate(json.loads(GOOD_S2)).role_family == "product"
+    bad = json.loads(GOOD_S2)
+    bad["role_family"] = "warehouse"
+    with pytest.raises(ValueError):
+        validate(bad)
+    del bad["role_family"]
+    with pytest.raises(ValueError):
+        validate(bad)
+
+
+def entry(verdict="apply", family="product"):
+    return {"score": 80, "verdict": verdict, "role_family": family, "reasons": [], "red_flags": [],
+            "subscores": {}}
+
+
+def rr(status="confirmed"):
+    from screener.models import RuleResult
+    return RuleResult(status="stage2", tier="A", location_status=status)
+
+
+@pytest.mark.parametrize("family", ["physical_ops", "other"])
+def test_apply_capped_to_stretch_for_non_pm_families(family):
+    out = stage2.apply_caps(entry("apply", family), rr("confirmed"))
+    assert out["verdict"] == "stretch" and out["uncapped_verdict"] == "apply"
+    assert any(family in n for n in out["notes"]) and "verify location" not in out["notes"]
+
+
+@pytest.mark.parametrize("family", ["product", "tech_program", "software_project"])
+def test_pm_families_with_confirmed_location_stay_apply(family):
+    out = stage2.apply_caps(entry("apply", family), rr("confirmed"))
+    assert out["verdict"] == "apply" and out["notes"] == []
+
+
+def test_unknown_location_caps_at_stretch_with_verify_note():
+    out = stage2.apply_caps(entry("apply"), rr("unknown"))
+    assert out["verdict"] == "stretch" and out["notes"] == ["verify location"]
+
+
+def test_caps_never_raise_a_verdict():
+    assert stage2.apply_caps(entry("skip", "other"), rr("unknown"))["verdict"] == "skip"
+    assert stage2.apply_caps(entry("stretch"), rr("unknown"))["verdict"] == "stretch"
+
+
+@pytest.mark.parametrize("loc,desc,expected", [
+    ("Bengaluru", "", "confirmed"), ("Bangalore, Karnataka", "", "confirmed"),
+    ("Remote - India", "", "confirmed"), ("Remote", "Our team in India is growing", "confirmed"),
+    ("N/A", "Own the roadmap", "unknown"), ("Remote", "Work from anywhere", "unknown"),
+    ("", "", "unknown"),
+])
+def test_location_status(rules, loc, desc, expected):
+    assert rules.location_status(job(location=loc, desc=desc)) == expected
+
+
+@pytest.mark.parametrize("loc", [
+    "US-Remote", "Remote-US", "US Remote", "Remote in the US", "SF, NYC, Remote",
+    "San Francisco, Seattle, New York, US-Remote", "Seattle, Washington, United States",
+    "Remote, EMEA", "US-SF-HQ, US-SEA, US-CHI, US-NYC", "New York City, Toronto, Chicago, or Remote", "Toronto, Canada", "London or Dublin Remote",
+])
+def test_remote_with_only_non_india_places_is_dropped(rules, loc):
+    r = rules.evaluate(job("Senior Product Manager", location=loc, remote="remote"))
+    assert r.status == "drop" and r.drop_reason == "location_non_india_only"
+
+
+@pytest.mark.parametrize("loc", [
+    "Remote", "Remote - Atlantis", "San Francisco; Bengaluru", "Remote, India",
+    "Remote - Germany or India", "N/A", "", "Remote - APAC",
+])
+def test_unknown_or_india_signal_locations_survive(rules, loc):
+    r = rules.evaluate(job("Senior Product Manager", location=loc, remote="remote"))
+    assert r.status != "drop", loc
+
+
+def test_india_signal_in_title_prevents_non_india_drop(rules):
+    r = rules.evaluate(job("Senior Product Manager (Bengaluru)", location="New York, Remote"))
+    assert r.status != "drop"
+
+
+def test_bare_remote_stays_unknown_not_dropped(rules):
+    assert rules.location_class(job(location="Remote", remote="remote")) == "ambiguous"
+
+
+def test_record_carries_notes_and_capped_verdict(env):
+    """Unknown-location job via stage 1 'unsure' -> scored, capped to stretch, verify note."""
+    jobs = json.loads(env.jobs.read_text())
+    jobs[1]["location"] = "N/A"
+    jobs[1]["description"] = "Own roadmap too"
+    env.jobs.write_text(json.dumps(jobs))
+    high = json.loads(GOOD_S2)
+    high["scores"] = {"role_and_title_fit": 25, "domain_fit": 20, "seniority_fit": 20,
+                      "location_fit": 15, "company_and_growth": 10, "comp_signal": 10}
+    client = FakeClient([GOOD_S2, '{"decision": "unsure", "reason": "unknown"}', json.dumps(high)])
+    go(env, client)
+    rows = {r["id"]: r for r in json.loads(env.out.read_text())}
+    b = rows["b"]["screen"]
+    assert b["location_status"] == "unknown" and "verify location" in b["notes"]
+    assert b["stage2"]["score"] == 100 and b["stage2"]["verdict"] == "stretch"
+    assert b["stage2"]["uncapped_verdict"] == "apply"
+    assert rows["a"]["screen"]["notes"] == []                 # confirmed Bengaluru, product
+
+
+def test_physical_ops_job_capped_end_to_end(env):
+    ops = json.loads(GOOD_S2)
+    ops["role_family"] = "physical_ops"
+    ops["scores"] = {"role_and_title_fit": 25, "domain_fit": 20, "seniority_fit": 20,
+                     "location_fit": 15, "company_and_growth": 10, "comp_signal": 10}
+    go(env, FakeClient([json.dumps(ops)]), limit=1)
+    row = json.loads(env.out.read_text())[0]["screen"]["stage2"]
+    assert row["verdict"] == "stretch" and row["role_family"] == "physical_ops"

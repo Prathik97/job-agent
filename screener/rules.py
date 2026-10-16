@@ -35,6 +35,45 @@ _NUM = r"(\d{1,2}|" + "|".join(_WORDS) + r")"
 _YRS = r"\s*\+?\s*(?:years?|yrs?)\b"
 _RANGE = re.compile(_NUM + r"\s*(?:-|–|—|to)\s*" + _NUM + _YRS, re.I)
 _SINGLE = re.compile(_NUM + _YRS, re.I)
+# Known non-India places. A location made up only of these (plus "remote"/"hybrid" filler)
+# is dropped; anything unrecognised is left alone because we cannot be sure it is non-India.
+NON_INDIA_PLACES = """
+us, usa, u.s., u.s.a., united states, america, north america, americas, canada, uk, u.k.,
+united kingdom, england, britain, ireland, germany, france, spain, italy, netherlands, belgium,
+sweden, norway, denmark, finland, poland, portugal, switzerland, austria, europe, emea, eu, latam,
+brazil, mexico, argentina, colombia, chile, singapore, japan, australia, new zealand, china,
+hong kong, korea, israel, uae, dubai, philippines, indonesia, new york, nyc, ny, new-york,
+san francisco, sf, bay area, sea, seattle, chicago, chi, atlanta, boston, austin, denver, miami,
+dallas, houston, los angeles, la, washington, dc, portland, san jose, palo alto, mountain view,
+south san francisco, toronto, vancouver, montreal, ottawa, dublin, london, paris, berlin, munich,
+amsterdam, madrid, barcelona, lisbon, stockholm, copenhagen, zurich, warsaw, tokyo, sydney,
+melbourne, auckland, mexico city, cdmx, sao paulo, buenos aires, bogota, santiago, tel aviv,
+ca, wa, tx, il, ma, ga, co, fl, nj, va
+"""
+_FILLER = ("remote", "hybrid", "onsite", "on site", "hq", "headquarters", "office", "or", "and",
+           "based", "in", "the", "of", "area", "metro", "region", "within", "multiple", "city")
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+_PLACES = sorted({_norm(p) for p in NON_INDIA_PLACES.replace("\n", " ").split(",") if p.strip()},
+                 key=len, reverse=True)
+_PLACE_RE = re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(p) for p in _PLACES) + r")(?![a-z0-9])")
+_FILLER_RE = re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(_norm(f)) for f in _FILLER) + r")(?![a-z0-9])")
+
+
+def names_only_non_india(location: str) -> bool:
+    """True if the location names at least one known non-India place and nothing else
+    (beyond words like 'remote'/'hybrid'). A bare 'Remote' or unknown place returns False."""
+    low = _norm(location)
+    if not _PLACE_RE.search(low):
+        return False
+    rest = _FILLER_RE.sub(" ", _PLACE_RE.sub(" ", low))
+    return not re.search(r"[a-z0-9]", rest)
+
+
 _PLACEHOLDER_LOCATIONS = {"n/a", "na", "none", "null", "unknown", "tbd", "-", "--"}
 _REMOTE = re.compile(r"\b(remote|anywhere|worldwide|global|distributed)\b", re.I)
 
@@ -139,7 +178,7 @@ class Rules:
         return None
 
     def location_class(self, job: Job) -> str:
-        """'ok', 'ambiguous' (needs stage 1) or 'bad'."""
+        """'ok', 'ambiguous' (needs stage 1), 'non_india' or 'bad' (both dropped)."""
         loc = job.location or ""
         if loc.strip().lower() in _PLACEHOLDER_LOCATIONS:
             loc = ""  # unknown location: let stage 1 judge from the description
@@ -152,10 +191,20 @@ class Rules:
                 return "bad"
             if not self.remote_must_be_india or "india" in low:
                 return "ok"
+            if names_only_non_india(loc) and not self._india_signal(job.title):
+                return "non_india"
             return "ambiguous"
         if low.strip() == "india":
             return "ambiguous"
         return "bad"
+
+    def _india_signal(self, text: str) -> bool:
+        low = (text or "").lower()
+        return "india" in low or any(c in low for c in self.cities)
+
+    def location_status(self, job: Job) -> str:
+        """'confirmed' if the location or description names Bengaluru/Bangalore/India."""
+        return "confirmed" if self._india_signal(f"{job.location}\n{job.description}") else "unknown"
 
     def evaluate(self, job: Job) -> RuleResult:
         def drop(reason: str, **kw) -> RuleResult:
@@ -190,6 +239,8 @@ class Rules:
                 flags.append("below_range")
 
         loc_class = self.location_class(job)
+        if loc_class == "non_india":
+            return drop("location_non_india_only", tier=tier, years_required=years)
         if loc_class == "bad":
             return drop("location_not_eligible", tier=tier, years_required=years)
         if loc_class == "ambiguous":
@@ -198,7 +249,8 @@ class Rules:
             flags.append("untiered")
 
         status = "stage1" if flags_need_stage1(flags) else "stage2"
-        return RuleResult(status=status, tier=tier, years_required=years, flags=flags)
+        return RuleResult(status=status, tier=tier, years_required=years, flags=flags,
+                          location_status=self.location_status(job))
 
 
 def flags_need_stage1(flags: List[str]) -> bool:
