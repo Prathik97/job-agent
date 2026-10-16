@@ -3,8 +3,8 @@
 TODO: mirror the section order and style of data/raw/resume_reference.pdf (not found when this
 was written, so this is a conventional single-column order built from master_profile.json).
 """
-SECTION_ORDER = ["summary", "experience", "skills", "education", "certifications"]
-HEADINGS = {"summary": "Summary", "experience": "Experience", "skills": "Skills",
+SECTION_ORDER = ["summary", "experience", "projects", "skills", "education", "certifications"]
+HEADINGS = {"summary": "Summary", "experience": "Experience", "projects": "Personal Projects", "skills": "Skills",
             "education": "Education", "certifications": "Certifications"}
 FONT_CANDIDATES = [  # first pair that exists and has the rupee sign (U+20B9) wins
     ("/System/Library/Fonts/Supplemental/Georgia.ttf", "/System/Library/Fonts/Supplemental/Georgia Bold.ttf"),

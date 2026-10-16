@@ -167,10 +167,14 @@ def top_gaps(entry: dict, weights: Dict[str, int], n: int = 3) -> List[str]:
 
 
 def jd_match(keywords: List[str], master: dict) -> List[dict]:
-    """Each keyword marked backed or not by master_profile.json, with the same logic as jd_keywords.md."""
-    from tailor.tailor import keyword_support
-    return [{"keyword": k, "where": (where := keyword_support(k, master)), "backed": bool(where)}
-            for k in keywords]
+    """Each keyword marked backed or not by master_profile.json, with the master phrase that matched."""
+    from tailor.keywords import match_keyword
+    out = []
+    for k in keywords:
+        m = match_keyword(k, master)
+        out.append({"keyword": k, "backed": m is not None, "where": m.where if m else "",
+                    "matched": m.matched if m else "", "how": m.how if m else ""})
+    return out
 
 
 # ---------- drafts: what "Tailor resume" and "Add to pipeline" act on ----------

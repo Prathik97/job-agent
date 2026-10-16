@@ -25,6 +25,10 @@ KNOWN_TOOLS_LIST = [
     "docker", "terraform", "firebase", "twilio", "webengage", "clevertap", "braze", "appsflyer",
     "adjust", "branch.io", "excel", "google sheets", "salesforce", "moengage", "clarity", "clickup",
     "figma", "erpnext", "mojro", "whatsapp",
+    "claude", "anthropic", "openai", "gemini", "langchain", "vercel", "nextjs", "next.js", "fastapi", "flask", "django",
+    "supabase", "pandas", "numpy", "streamlit", "playwright", "gspread", "telegram", "pydantic", "pytest", "tailwind",
+    "postgres", "sqlite", "redis", "netlify", "cloudflare", "github actions", "vite", "svelte", "angular", "vue",
+    "bash", "pinecone", "chroma", "huggingface", "yfinance", "matplotlib",
 ]
 # Plain business acronyms that are not tools.
 GENERIC_ACRONYMS = {"KPI", "KPIS", "OKR", "OKRS", "API", "APIS", "UX", "UI", "PRD", "PRDS", "B2B", "B2C", "B2B2C",

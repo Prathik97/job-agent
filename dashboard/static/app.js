@@ -472,7 +472,7 @@ function renderJD() {
     } else {
       const rows = m.items.map(i => el("tr", {}, el("td", { text: i.keyword }),
         el("td", {}, el("span", { class: "chip " + (i.backed ? "backed" : "notbacked"), text: i.backed ? "backed" : "not backed" })),
-        el("td", { class: "l", text: i.backed ? i.where : "not claimed on a resume" })));
+        el("td", { class: "l", text: i.backed ? "\u201c" + i.matched + "\u201d in " + i.where + " (" + i.how + ")" : "not claimed on a resume" })));
       match = el("div", {}, el("div", { class: "l", text: "Backed " + m.backed + " of " + m.items.length + " by master_profile.json (same check as jd_keywords.md)." }),
         m.items.length ? el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {},
           ["Keyword or skill", "Status", "Where"].map(h => el("th", { text: h })))), el("tbody", {}, rows))) : "");

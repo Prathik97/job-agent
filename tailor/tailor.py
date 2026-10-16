@@ -26,7 +26,9 @@ from screener.llm import Usage, cost_usd, extract_json, make_client
 from screener.text import est_tokens, truncate
 from tailor import layout, render
 from tailor.answers import load_answers, screening_answers_md
-from tailor.facts import Facts, word_in
+from tailor.facts import Facts
+from tailor.keywords import match_keyword
+from tailor.projects import jd_warrants_projects, offerable
 from tailor.factcheck import Context, check_text
 from tailor.plan import TailorPlan, achievements_by_id, structure_violations
 
@@ -48,11 +50,12 @@ Hard rules:
 - summary: 2 or 3 short sentences made only from summary_facts.
 - skills: choose and order items that appear in the profile's skills, grouped under the profile's category names.
 - certifications: exact strings from the profile, only those relevant.
+- projects: the profile may list personal projects (only when the job is AI or technical; otherwise there are none). Choose 0 to 3 that are relevant. Each is {id, text, reword_why}: text is one line, the project's description unchanged or lightly reworded, using only that project's own description, metrics and tools. A null field means the candidate did not answer; never fill it. A project is never employment: never call it a job, role or experience. If no projects are listed, return an empty list.
 - jd_keywords: the 12 to 25 most important skills and keywords in the job description.
 - cover_note: 120 to 150 words, plain first person, specific to this job and company, drawn from real profile facts, no generic flattery, no clichés like "I am excited" or "passionate".
 - outreach: under 70 words, a short note the candidate sends to the hiring manager or recruiter, plain first person, specific, one concrete fact.
 - Never use em dashes. Use commas, periods or hyphens.
-Return ONLY a JSON object with these keys: headline_key, summary (list of strings), experience (list of {id, bullets: [{achievement_id, text, reword_why}]}), skills ({category: [items]}), certifications (list), jd_keywords (list), selection_rationale (one or two sentences), cover_note, outreach."""
+Return ONLY a JSON object with these keys: headline_key, summary (list of strings), experience (list of {id, bullets: [{achievement_id, text, reword_why}]}), skills ({category: [items]}), certifications (list), projects (list of {id, text, reword_why}), jd_keywords (list), selection_rationale (one or two sentences), cover_note, outreach."""
 
 USER = """Job: {title} at {company} ({location})
 
@@ -94,6 +97,7 @@ class Prepared:
     user: str
     est_cost: float          # one call
     score: Optional[int] = None
+    projects_ok: bool = False   # the JD is AI or technical enough to show personal projects
 
 
 @dataclass
@@ -148,10 +152,16 @@ def prepare(job_id: str, *, data_dir: Path, master_path: Path, profile_path: Pat
     view.pop("identity", None)
     view.pop("guardrails", None)
     view.pop("equivalents", None)
+    projects_ok = jd_warrants_projects(job["title"], jd)
+    if projects_ok:
+        view["projects"] = offerable(view)
+    if not projects_ok or not view.get("projects"):
+        view.pop("projects", None)
+        projects_ok = False
     user = USER.format(title=job["title"], company=job["company"], location=job.get("location") or "not stated",
                        jd=truncate(jd, JD_MAX_CHARS), master=json.dumps(view, ensure_ascii=False, indent=1))
     est = cost_usd(model, est_tokens(SYSTEM + user), EST_OUT_TOKENS)
-    return Prepared(job, jd, bool(jd_override), model, india, facts, view, SYSTEM, user, est, score)
+    return Prepared(job, jd, bool(jd_override), model, india, facts, view, SYSTEM, user, est, score, projects_ok)
 
 
 def guard_cost(prep: Prepared, max_cost: float) -> None:
@@ -184,6 +194,15 @@ def build_sections(plan: TailorPlan, prep: Prepared) -> Tuple[str, str, List[Tup
         exp_blocks.append(("role", f"{e['title']}, {e['company']}", f"{e['location']} | {e['start']} - {e['end']}"))
         exp_blocks += [("bullet", b.text.strip()) for b in role.bullets]
     sections["experience"] = exp_blocks
+    if plan.projects:
+        by_project = {p["id"]: p for p in m.get("projects", [])}
+        blocks: List[tuple] = []
+        for pp in plan.projects:
+            pr = by_project[pp.id]
+            meta = " | ".join(x for x in [pr.get("status"), ", ".join(pr.get("tools") or []), pr.get("link")] if x)
+            blocks += [("role", f"{pr['name']} (personal project)", meta or "Personal project"),
+                       ("bullet", pp.text.strip())]
+        sections["projects"] = blocks
     sections["skills"] = [("para", f"{_title_case(cat)}: {', '.join(items)}") for cat, items in plan.skills.items() if items]
     ed = m["education"]
     sections["education"] = [("para", f"{ed['degree']}, {ed['institution']}"),
@@ -210,45 +229,28 @@ def trim_to_fit(plan: TailorPlan, prep: Prepared) -> Tuple[bytes, float, int, Li
         pdf, size, pages = render.fit_pdf(name, contact, sections)
         if pages <= layout.MAX_PAGES:
             return pdf, size, pages, dropped, (name, contact, sections)
+        if plan.projects:
+            dropped.append("project:" + plan.projects.pop().id)
+            continue
         crowded = max((r for r in plan.experience if len(r.bullets) > 1), key=lambda r: len(r.bullets), default=None)
         if crowded is None:
             raise TailorError(f"the resume is {pages} pages even after trimming; limit is {layout.MAX_PAGES}")
         dropped.append(crowded.bullets.pop().achievement_id)
 
 
-def _has(keyword: str, text: str) -> bool:
-    """Whole-word match, plus a word-start match for keywords of 5+ letters so that
-    'roadmap' is backed by 'Roadmapping' and 'feature' by 'features'."""
-    k = keyword.lower().strip()
-    if word_in(k, text):
-        return True
-    return len(k) >= 5 and re.search(r"(?<![a-z0-9])" + re.escape(k), text) is not None
-
-
 def keyword_support(keyword: str, master: dict) -> str:
-    """Where master_profile.json backs a JD keyword, or '' if it does not."""
-    for cat, items in master["skills"].items():
-        if any(_has(keyword, i.lower()) for i in items):
-            return f"skills.{cat}"
-    for e in master["experience"]:
-        for a in e["achievements"]:
-            if any(_has(keyword, t.replace("_", " ")) for t in a.get("tags", [])):
-                return f"tag on {a['id']}"
-            if _has(keyword, a["text"].lower()):
-                return f"text of {a['id']}"
-    if any(_has(keyword, s.lower()) for s in master.get("summary_facts", [])):
-        return "summary_facts"
-    if any(_has(keyword, h.lower()) for h in master["headline_variants"].values()):
-        return "headline_variants"
-    return ""
+    """Where master_profile.json backs a JD keyword, or '' if it does not (see tailor/keywords.py)."""
+    m = match_keyword(keyword, master)
+    return m.where if m else ""
 
 
 def jd_keywords_md(plan: TailorPlan, master: dict) -> str:
     lines = ["# JD keywords and whether master_profile.json backs them", ""]
-    backed = [(k, keyword_support(k, master)) for k in plan.jd_keywords]
-    for k, where in backed:
-        lines.append(f"- {k}: backed ({where})" if where else f"- {k}: NOT backed, so it is not claimed")
-    lines += ["", f"Backed: {sum(1 for _, w in backed if w)} of {len(backed)}."]
+    backed = [(k, match_keyword(k, master)) for k in plan.jd_keywords]
+    for k, m in backed:
+        lines.append(f"- {k}: backed (matched '{m.matched}' in {m.where}, {m.how})" if m
+                     else f"- {k}: NOT backed, so it is not claimed")
+    lines += ["", f"Backed: {sum(1 for _, m in backed if m)} of {len(backed)}."]
     return "\n".join(lines) + "\n"
 
 
@@ -278,6 +280,11 @@ def changes_md(plan: TailorPlan, prep: Prepared, dropped: List[str]) -> str:
                 L += [f"- Reworded {b.achievement_id}: {b.reword_why}", f"  - Before: {ach[b.achievement_id]['text']}",
                       f"  - After: {b.text.strip()}"]
         L.append("")
+    if plan.projects:
+        L += ["Personal projects shown under their own heading, labelled as personal projects, never as employment: "
+              + ", ".join(pp.id for pp in plan.projects), ""]
+    elif not prep.projects_ok:
+        L += ["Personal projects: not shown (the JD is not AI or technical enough, or no project has a description).", ""]
     if dropped:
         L += ["Dropped to fit 2 pages: " + ", ".join(dropped), ""]
     L += ["Skills: chosen and ordered from master skills; none added.", "",
@@ -299,6 +306,8 @@ def evaluate(text: str, prep: Prepared) -> Tuple[Optional[TailorPlan], List[str]
         plan = TailorPlan.model_validate(extract_json(text))
     except ValueError as exc:
         return None, [f"the answer was not valid JSON for the schema: {str(exc)[:200]}"]
+    if not prep.projects_ok:
+        plan.projects = []      # the gate is code: a model-chosen project is dropped, not trusted
     violations = structure_violations(plan, prep.facts)
     try:
         name, contact, sections = build_sections(plan, prep)

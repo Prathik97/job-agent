@@ -62,6 +62,47 @@
       ]
     }
   ],
+  "projects": [
+    {
+      "id": "prd_copilot",
+      "name": "Example PRD Copilot",
+      "description": "An AI co-pilot that turns rough product notes into a first-draft PRD.",
+      "tools": [
+        "Python",
+        "Claude API"
+      ],
+      "metrics": [
+        "120 weekly users"
+      ],
+      "link": "https://example.com/prd-copilot",
+      "status": "live",
+      "tags": [
+        "ai",
+        "llm",
+        "prd"
+      ],
+      "unanswered": []
+    },
+    {
+      "id": "score_checker",
+      "name": "Example Score Checker",
+      "description": "A free public tool that scores a resume against a job description.",
+      "tools": [
+        "Next.js",
+        "Vercel"
+      ],
+      "metrics": null,
+      "link": "https://example.com/score-checker",
+      "status": "live",
+      "tags": [
+        "ats",
+        "web"
+      ],
+      "unanswered": [
+        "metrics"
+      ]
+    }
+  ],
   "education": {
     "institution": "Example University",
     "degree": "Bachelor of Engineering",
