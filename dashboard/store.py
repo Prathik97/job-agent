@@ -56,7 +56,8 @@ class ApplicationsStore:
 
     def update(self, job_id: str, *, status: Optional[str] = None, notes: Optional[str] = None,
                mark_applied: bool = False, snapshot: Optional[dict] = None,
-               now: Optional[str] = None, today: Optional[date] = None) -> dict:
+               now: Optional[str] = None, today: Optional[date] = None,
+               resume_version: Optional[str] = None) -> dict:
         """Apply a change and return the entry. `snapshot` (company, title, url, score, verdict)
         is stored the first time the status leaves "new"."""
         if mark_applied:
@@ -72,7 +73,8 @@ class ApplicationsStore:
         with self._lock:
             data = self.load()
             entry = data.get(job_id) or {"status": "new", "updated_at": None, "applied_at": None,
-                                         "notes": "", "history": [], "snapshot": None}
+                                         "notes": "", "history": [], "snapshot": None,
+                                         "resume_version": None}
             changed = False
             if status is not None and status != entry["status"]:
                 entry["history"].append({"at": now, "from": entry["status"], "to": status})
@@ -80,6 +82,8 @@ class ApplicationsStore:
                     entry["snapshot"] = snapshot
                 if status == "applied" and not entry["applied_at"]:
                     entry["applied_at"] = today.isoformat()
+                if status == "applied" and resume_version and not entry.get("resume_version"):
+                    entry["resume_version"] = resume_version   # the resume folder used for this application
                 entry["status"] = status
                 changed = True
             if notes is not None and notes != entry["notes"]:

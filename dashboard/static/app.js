@@ -68,6 +68,20 @@ async function post(path, body) {
   return res.json();
 }
 
+async function openFile(folder, name) {
+  const res = await fetch("/files/" + encodeURIComponent(folder) + "/" + encodeURIComponent(name),
+    { headers: { "X-Dashboard-Token": TOKEN } });
+  if (!res.ok) { say("Could not open " + name + " (" + res.status + ")"); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  if (/\.(pdf|md|txt)$/.test(name)) {
+    window.open(url, "_blank", "noopener");
+  } else {
+    const a = el("a", { href: url, download: name }); document.body.append(a); a.click(); a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 async function saveLabel(id, body) {
   const out = await post("/api/labels/" + encodeURIComponent(id), body);
   if (out.entry) data.labels[id] = out.entry; else delete data.labels[id];
@@ -76,6 +90,7 @@ async function saveLabel(id, body) {
 async function save(job, body) {
   const entry = await post("/api/applications/" + encodeURIComponent(job.id), body);
   job.status = entry.status; job.applied_at = entry.applied_at; job.app_notes = entry.notes;
+  job.resume_version = entry.resume_version || null;
   recount();
 }
 
@@ -197,7 +212,70 @@ const keptCell = r => {
   return box;
 };
 
+function fileLinks(folder, files) {
+  return el("div", { class: "files" }, el("div", { class: "l", text: "Saved in output/resumes/" + folder }),
+    files.map(f => el("button", { class: "btn", text: f, onclick: () => openFile(folder, f) })));
+}
+
+function openPrepare(job) {
+  const existing = (data.prepared || {})[job.id];
+  const status = el("div", { class: "modalstatus" });
+  const out = el("div", {});
+  const jd = el("textarea", { rows: 8, placeholder: "Paste the full job description here", "aria-label": "Full job description",
+    maxlength: 200000 });
+  const runBtn = el("button", { class: "btn primary", text: "Run tailor", disabled: true });
+  const estBtn = el("button", { class: "btn", text: "Get cost estimate" });
+  const close = () => overlay.remove();
+  const body = () => ({ job_id: job.id, jd: jd.value.trim() || null });
+
+  async function estimate() {
+    status.textContent = "Estimating...";
+    try {
+      const r = await post("/api/tailor/estimate", body());
+      if (r.requires_jd) { status.textContent = "This job's description is partial. Paste the full description, then get the estimate."; runBtn.disabled = true; return; }
+      status.textContent = "Model: " + r.model + ". Estimated cost $" + r.est_cost.toFixed(3) + " (worst case $" + r.worst_cost.toFixed(3) + ", limit $" + r.max_cost.toFixed(2) + ").";
+      runBtn.disabled = false;
+    } catch (e) { status.textContent = "Estimate failed."; }
+  }
+  estBtn.addEventListener("click", estimate);
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true; status.textContent = "Tailoring... this takes up to a minute.";
+    out.replaceChildren();
+    const res = await fetch("/api/tailor/run", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN }, body: JSON.stringify(body()) });
+    const r = await res.json();
+    if (!res.ok) {
+      status.textContent = r.error || "Tailor failed.";
+      out.replaceChildren(...(r.violations || []).map(v => el("div", { class: "note", text: v })));
+      runBtn.disabled = false; return;
+    }
+    data.prepared[job.id] = { folder: r.folder, files: r.files };
+    status.textContent = "Done (" + r.model + ", $" + r.cost.toFixed(3) + ").";
+    out.replaceChildren(fileLinks(r.folder, r.files));
+    refresh();
+  });
+  if (existing) out.replaceChildren(fileLinks(existing.folder, existing.files));
+  const overlay = el("div", { class: "overlay", onclick: ev => { if (ev.target === overlay) close(); } },
+    el("div", { class: "modal", role: "dialog", "aria-label": "Prepare application" },
+      el("h2", { text: job.company + ": " + job.title }),
+      job.verdict ? el("div", { class: "l", text: "Score " + job.score + ", " + job.verdict }) : "",
+      job.jd_partial ? el("div", { class: "note", text: "Partial JD from an aggregator. Paste the full description to continue." }) : "",
+      job.jd_partial ? jd : el("div", {}, el("details", {}, el("summary", { text: "Replace the stored description (optional)" }), jd)),
+      el("div", { class: "toolbar" }, estBtn, runBtn, el("button", { class: "btn", text: "Close", onclick: close })),
+      status, out));
+  document.body.append(overlay);
+  if (!job.jd_partial) estimate();
+}
+
+const prepareCell = r => {
+  const p = (data.prepared || {})[r.id];
+  return el("button", { class: "btn" + (p ? "" : " primary"), text: p ? "Prepared: files" : "Prepare application",
+    onclick: () => openPrepare(r) });
+};
+
 const COLS = {
+  prepare: { key: "prepare", label: "Application", sortable: false, value: () => "", render: prepareCell },
+  resume: { key: "resume_version", label: "Resume version", value: r => r.resume_version || "" },
   myLabel: { key: "my_label", label: "My label", sortable: false, value: r => (data.labels[r.id] || {}).label || "", render: labelCell },
   kept: { key: "kept", label: "Keep?", sortable: false, value: () => "", render: keptCell },
   company: text("company", "Company"), title: text("title", "Title"), location: text("location", "Location"),
@@ -224,7 +302,7 @@ function renderReady() {
   const rows = () => data.jobs.filter(r => ["apply", "stretch"].includes(r.verdict) &&
     ["new", "shortlisted"].includes(r.status) && !r.orphaned);
   const cols = [COLS.company, COLS.title, COLS.location, COLS.source, COLS.score, COLS.verdict, COLS.notes,
-    COLS.posted, COLS.open, COLS.status, COLS.mark];
+    COLS.posted, COLS.open, COLS.prepare, COLS.status, COLS.mark];
   return { toolbar: [el("span", { class: "count", id: "count" })],
     draw() { const r = rows(); document.getElementById("count").textContent = r.length + " jobs";
       swapHolder(buildTable("ready", cols, r, refresh)); } };
@@ -232,7 +310,7 @@ function renderReady() {
 
 function renderPipeline() {
   const rows = () => data.jobs.filter(r => PIPELINE.includes(r.status));
-  const cols = [COLS.company, COLS.title, COLS.status, COLS.applied, COLS.followUp, COLS.myNotes,
+  const cols = [COLS.company, COLS.title, COLS.status, COLS.applied, COLS.followUp, COLS.resume, COLS.myNotes,
     COLS.score, COLS.verdict, COLS.open];
   return { toolbar: [el("span", { class: "count", id: "count" })],
     draw() { const r = rows(); document.getElementById("count").textContent = r.length + " jobs";

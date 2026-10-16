@@ -25,6 +25,7 @@ from config import MAX_COST_PER_RUN, OPUS, SONNET
 from screener.llm import Usage, cost_usd, extract_json, make_client
 from screener.text import est_tokens, truncate
 from tailor import layout, render
+from tailor.answers import load_answers, screening_answers_md
 from tailor.facts import Facts, word_in
 from tailor.factcheck import Context, check_text
 from tailor.plan import TailorPlan, achievements_by_id, structure_violations
@@ -358,12 +359,15 @@ def write_package(plan: TailorPlan, prep: Prepared, out_root: Path, today: date,
 def tailor_job(job_id: str, *, data_dir: Path = Path("data"), master_path: Path = Path("master_profile.json"),
                profile_path: Path = Path("profile.yaml"), out_root: Path = Path("output/resumes"),
                jd_override: Optional[str] = None, max_cost: float = MAX_COST_PER_RUN, client=None,
-               today: Optional[date] = None, extra_files: Optional[Dict[str, str]] = None) -> Result:
+               today: Optional[date] = None, extra_files: Optional[Dict[str, str]] = None,
+               answers_path: Optional[Path] = None) -> Result:
     prep = prepare(job_id, data_dir=data_dir, master_path=master_path, profile_path=profile_path,
                    jd_override=jd_override, max_cost=max_cost)
     log.info("estimated cost for one call: $%.3f (%s)", prep.est_cost, prep.model)
     guard_cost(prep, max_cost)
     usage = Usage()
     plan, fixed = generate(client or make_client(), prep, usage)
+    answers = answers_path if answers_path is not None else data_dir / "clean" / "application_answers.yaml"
+    extra_files = {**(extra_files or {}), "screening_answers.md": screening_answers_md(load_answers(answers))}
     folder, _ = write_package(plan, prep, out_root, today or date.today(), extra_files)
     return Result(folder, prep.model, usage.cost(), sum(usage.calls.values()), fixed)

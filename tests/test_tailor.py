@@ -212,7 +212,8 @@ def test_happy_path_writes_the_package(env):
     assert res.folder.name == "Acme-Corp_Senior-Product-Manager_20261016" and res.calls == 1
     assert res.model == SONNET
     assert sorted(p.name for p in res.folder.iterdir()) == sorted(
-        ["resume.docx", "resume.pdf", "cover_note.md", "outreach.md", "changes.md", "jd_keywords.md"])
+        ["resume.docx", "resume.pdf", "cover_note.md", "outreach.md", "changes.md", "jd_keywords.md",
+         "screening_answers.md"])
     pdf = (res.folder / "resume.pdf").read_bytes()
     assert render.pdf_page_count(pdf) <= 2
     text = render.pdf_text(pdf)

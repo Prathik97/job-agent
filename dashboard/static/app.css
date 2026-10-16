@@ -65,3 +65,13 @@ td .labelbox input { width: 100%; }
 .matrix td, .matrix th { text-align: right; }
 .matrix th:first-child, .matrix td:first-child { text-align: left; }
 .section { margin-bottom: 20px; }
+
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: flex-start;
+  justify-content: center; padding: 8vh 16px; overflow-y: auto; z-index: 10; }
+.modal { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
+  width: min(640px, 100%); }
+.modal textarea { width: 100%; margin: 8px 0; }
+.modalstatus { margin: 8px 0; }
+.files { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.files .l { width: 100%; }
+button:disabled, select:disabled, input:disabled { opacity: .5; cursor: not-allowed; }

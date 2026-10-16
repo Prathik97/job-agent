@@ -56,13 +56,15 @@ def job_row(row: dict) -> Optional[dict]:
             "url": safe_url(row.get("url")), "posted_date": row.get("posted_date"),
             "tier": screen.get("tier") or "", "score": s2["score"], "verdict": s2["verdict"],
             "notes": list(screen.get("notes") or []), "red_flags": list(s2.get("red_flags") or []),
-            "also_listed_on": list(row.get("also_listed_on") or []), "orphaned": False}
+            "also_listed_on": list(row.get("also_listed_on") or []), "orphaned": False,
+            "jd_partial": bool(row.get("jd_partial"))}
 
 
 def merge_application(job: dict, app: Optional[dict]) -> dict:
     app = app or {}
     return {**job, "status": app.get("status", "new"), "applied_at": app.get("applied_at"),
-            "app_notes": app.get("notes", ""), "updated_at": app.get("updated_at")}
+            "app_notes": app.get("notes", ""), "updated_at": app.get("updated_at"),
+            "resume_version": app.get("resume_version")}
 
 
 def orphan_row(job_id: str, app: dict) -> dict:
