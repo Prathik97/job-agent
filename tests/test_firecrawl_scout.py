@@ -36,12 +36,13 @@ class FakeSession:
     """post = Firecrawl, get = robots.txt."""
 
     def __init__(self, robots="User-agent: *\nAllow: /", markdown="# page"):
-        self.robots, self.markdown, self.posts = robots, markdown, []
+        self.robots, self.markdown, self.posts, self.payloads = robots, markdown, [], []
 
     def get(self, url, timeout=None):
         return SimpleNamespace(status_code=200, text=self.robots)
 
     def post(self, url, json=None, headers=None, timeout=None):
+        self.payloads.append(json)
         self.posts.append(json["url"])
         md = self.markdown(json["url"]) if callable(self.markdown) else self.markdown
         return SimpleNamespace(raise_for_status=lambda: None,
@@ -187,3 +188,30 @@ def test_merge_keeps_first_seen_and_full_text(tmp_path):
 def test_dry_run_spends_nothing(env):
     stats = go(env, FakeSession(), dry_run=True)
     assert stats["planned_pages"] and stats["credits_used"] == 0
+
+
+def test_retry_empty_rescrapes_only_empty_pages_with_wait(env):
+    # first run: the listing page yields nothing (JS-rendered)
+    go(env, FakeSession(markdown="# loading"), FakeClient({"jobs": []}))
+    plain = FakeSession(markdown="# loading")
+    assert go(env, plain, FakeClient({"jobs": []}))["credits_used"] == 0  # cached empty: no retry by default
+    session = FakeSession(markdown=md_for)
+    stats = go(env, session, FakeClient(LISTING), retry_empty=True, wait_ms=7000)
+    assert session.payloads[0]["waitFor"] == 7000 and "waitFor" not in plain.payloads[0] if plain.payloads else True
+    assert stats["pages"] == 1 and stats["companies"]["Acme"]["passed_rules"] == 1
+    again = go(env, FakeSession(markdown=md_for), FakeClient(LISTING), retry_empty=True, wait_ms=7000)
+    assert again["pages"] == 0 and again["credits_used"] == 0  # non-empty pages are not retried
+
+
+def test_pages_that_stay_empty_save_nothing(env):
+    go(env, FakeSession(markdown="# loading"), FakeClient({"jobs": []}))
+    stats = go(env, FakeSession(markdown="# still loading"), FakeClient({"jobs": []}),
+               retry_empty=True, wait_ms=7000)
+    assert stats["credits_used"] == 1 and not (env.tmp / "scout_jobs.json").exists()
+
+
+def test_scrape_omits_wait_by_default():
+    session = FakeSession(markdown="x")
+    fc.scrape(session, "k", "https://a.test")
+    fc.scrape(session, "k", "https://a.test", wait_ms=5000)
+    assert "waitFor" not in session.payloads[0] and session.payloads[1]["waitFor"] == 5000

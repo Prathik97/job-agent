@@ -98,10 +98,14 @@ def cache_put(url: str, cache_dir: Path, entry: dict, now: datetime) -> None:
 
 
 # ---- Firecrawl + extraction ----
-def scrape(session: requests.Session, key: str, url: str) -> Optional[str]:
-    """Markdown of one page, or None on any failure or empty page. Never logs the key."""
+def scrape(session: requests.Session, key: str, url: str, wait_ms: int = 0) -> Optional[str]:
+    """Markdown of one page, or None on any failure or empty page. Never logs the key.
+    wait_ms makes Firecrawl wait that long for JavaScript-rendered content (same credit cost)."""
+    payload: dict = {"url": url, "formats": ["markdown"], "onlyMainContent": True}
+    if wait_ms:
+        payload["waitFor"] = wait_ms
     try:
-        resp = session.post(API, json={"url": url, "formats": ["markdown"], "onlyMainContent": True},
+        resp = session.post(API, json=payload,
                             headers={"Authorization": f"Bearer {key}"}, timeout=90)
         resp.raise_for_status()
         body = resp.json()
@@ -145,9 +149,17 @@ def eligible_pages(report: List[dict]) -> List[dict]:
     return pages
 
 
+def _cached_empty(url: str, cache_dir: Path, now: datetime) -> bool:
+    cached = cache_get(url, cache_dir, now)
+    return bool(cached) and cached.get("jobs") == []
+
+
 def _listing_for(page: dict, fetch: Callable[[str], Optional[str]], client, usage: Usage,
-                 cache_dir: Path, now: datetime, session) -> Optional[List[ListedJob]]:
+                 cache_dir: Path, now: datetime, session,
+                 retry_empty: bool = False) -> Optional[List[ListedJob]]:
     cached = cache_get(page["url"], cache_dir, now)
+    if retry_empty and cached and cached.get("jobs") == []:
+        cached = None
     if cached and cached.get("jobs") is not None:
         return [ListedJob(**j) for j in cached["jobs"]]
     markdown = cached["markdown"] if cached else None
@@ -210,13 +222,15 @@ def merge_into(path: Path, fresh: List[Job]) -> int:
 
 
 def run(report_path: Path, profile_path: Path, *, max_credits: int = FIRECRAWL_MAX_CREDITS_PER_RUN,
-        dry_run: bool = False, cache_dir: Path = CACHE_DIR, usage_path: Path = USAGE_PATH,
+        dry_run: bool = False, wait_ms: int = 0, retry_empty: bool = False, cache_dir: Path = CACHE_DIR, usage_path: Path = USAGE_PATH,
         jobs_path: Path = FIRECRAWL_JOBS_PATH, scout_path: Path = SCOUT_JOBS_PATH,
         session: Optional[requests.Session] = None, client=None,
         now: Optional[datetime] = None) -> dict:
     now = now or datetime.now(timezone.utc)
     session = session or make_session(retry_statuses=())
     pages = eligible_pages(json.loads(report_path.read_text()))
+    if retry_empty:  # only pages whose cached listing came back empty, and ignore that cache
+        pages = [p for p in pages if _cached_empty(p["url"], cache_dir, now)]
     stats: dict = {"pages": len(pages), "credits_used": 0, "companies": {}, "capped": False}
     if dry_run:
         stats["planned_pages"] = pages
@@ -231,14 +245,14 @@ def run(report_path: Path, profile_path: Path, *, max_credits: int = FIRECRAWL_M
 
     def fetch(url: str) -> Optional[str]:
         budget.spend()
-        return scrape(session, key, url)
+        return scrape(session, key, url, wait_ms)
 
     passed: List[Job] = []
     try:
         for page in pages:
             co = stats["companies"].setdefault(page["company"], {
                 "listed": 0, "passed_rules": 0, "full_jd": 0})
-            listed = _listing_for(page, fetch, client, usage, cache_dir, now, session)
+            listed = _listing_for(page, fetch, client, usage, cache_dir, now, session, retry_empty)
             for item in listed or []:
                 co["listed"] += 1
                 job = _build_job(page["company"], item, page["url"])
@@ -269,11 +283,15 @@ def main() -> None:
     parser.add_argument("--report", type=Path, default=Path("data/raw/careers_report.json"))
     parser.add_argument("--profile", type=Path, default=Path("profile.yaml"))
     parser.add_argument("--max-credits", type=int, default=FIRECRAWL_MAX_CREDITS_PER_RUN)
+    parser.add_argument("--wait-ms", type=int, default=0, help="Firecrawl waitFor for JS pages")
+    parser.add_argument("--retry-empty", action="store_true",
+                        help="re-scrape only pages whose cached listing was empty")
     parser.add_argument("--dry-run", action="store_true", help="list pages, spend nothing")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     load_dotenv()
-    stats = run(args.report, args.profile, max_credits=args.max_credits, dry_run=args.dry_run)
+    stats = run(args.report, args.profile, max_credits=args.max_credits, dry_run=args.dry_run,
+                wait_ms=args.wait_ms, retry_empty=args.retry_empty)
     print(json.dumps({k: v for k, v in stats.items() if k != "jobs"}, indent=1, default=str))
 
 
