@@ -20,8 +20,10 @@ class ScreenError(Exception):
 @dataclass
 class Usage:
     by_model: Dict[str, list] = field(default_factory=dict)
+    calls: Dict[str, int] = field(default_factory=dict)
 
     def add(self, model: str, response) -> None:
+        self.calls[model] = self.calls.get(model, 0) + 1
         u = getattr(response, "usage", None)
         entry = self.by_model.setdefault(model, [0, 0])
         entry[0] += getattr(u, "input_tokens", 0) or 0

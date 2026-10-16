@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import anthropic
 import yaml
 
-from config import HAIKU, SONNET
+from config import HAIKU, MAX_COST_PER_RUN, SONNET
 from scout.schema import Job
 from screener import stage1, stage2
 from screener.cache import Cache, atomic_write_json, cache_key
@@ -30,6 +30,10 @@ from config import ASSUMED_STAGE1_KEEP_RATE
 log = logging.getLogger(__name__)
 TIER_ORDER = {"A": 0, "B": 1, "C": 2, "untiered": 3}
 Candidate = Tuple[Job, RuleResult]
+
+
+class SpendGuardError(RuntimeError):
+    """Estimated cost is above the per-run limit; aborted before any API call."""
 
 
 def load_jobs(path: Path) -> List[Job]:
@@ -177,7 +181,7 @@ def merge_output(out_path: Path, new: Dict[str, dict]) -> int:
 
 def run(jobs_path: Path, out_path: Path, profile_path: Path, cache_path: Path, *,
         dry_run: bool = False, limit: Optional[int] = None, retry_failed: bool = False,
-        client=None) -> dict:
+        client=None, max_cost: float = MAX_COST_PER_RUN) -> dict:
     profile = yaml.safe_load(profile_path.read_text())
     rules, ctx = Rules.from_profile(profile), stage2.build_context(profile)
     cache = Cache(cache_path)
@@ -191,10 +195,16 @@ def run(jobs_path: Path, out_path: Path, profile_path: Path, cache_path: Path, *
     if dry_run:
         log.info("dry run: no API calls made, nothing written")
         return funnel
+    if funnel["est_cost_total"] > max_cost:
+        raise SpendGuardError(
+            f"estimated cost ${funnel['est_cost_total']:.2f} is above the limit ${max_cost:.2f}; "
+            "no API call was made. Raise it with --max-cost or lower the load with --limit.")
     usage = Usage()
     results = screen(candidates, cache, ctx, client or make_client(), retry_failed, usage)
     total = merge_output(out_path, results)
     funnel["actual_cost"] = usage.cost()
+    funnel["actual_stage1_calls"] = usage.calls.get(HAIKU, 0)
+    funnel["actual_stage2_calls"] = usage.calls.get(SONNET, 0)
     funnel["scored"] = sum(1 for r in results.values() if r["screen"]["status"] == "scored")
     log.info("done: %d screened this run, %d rows in %s, actual API cost $%.3f",
              len(results), total, out_path, funnel["actual_cost"])
@@ -206,6 +216,8 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="funnel and cost estimate only")
     p.add_argument("--limit", type=int, help="process at most N jobs that survive the rules")
     p.add_argument("--retry-failed", action="store_true", help="retry jobs cached as invalid JSON")
+    p.add_argument("--max-cost", type=float, default=MAX_COST_PER_RUN,
+                   help="abort if the estimated cost is above this (USD)")
     p.add_argument("--jobs", type=Path, default=Path("data/raw/scout_jobs.json"))
     p.add_argument("--out", type=Path, default=Path("data/clean/screened_jobs.json"))
     p.add_argument("--profile", type=Path, default=Path("profile.yaml"))
@@ -213,7 +225,7 @@ def main() -> None:
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     run(a.jobs, a.out, a.profile, a.cache, dry_run=a.dry_run, limit=a.limit,
-        retry_failed=a.retry_failed)
+        retry_failed=a.retry_failed, max_cost=a.max_cost)
 
 
 if __name__ == "__main__":

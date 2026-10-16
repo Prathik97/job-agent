@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 import yaml
+from dotenv import load_dotenv
 
 from scout import adzuna, ashby, greenhouse, jsearch, lever
 from scout.http import cache_changed, make_session
@@ -122,6 +123,7 @@ def main() -> None:
     parser.add_argument("--no-aggregators", action="store_true", help="ATS scouts only")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    load_dotenv()
     run(args.companies, args.out, args.profile, aggregators=not args.no_aggregators)
 
 
