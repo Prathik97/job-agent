@@ -73,13 +73,9 @@ def build_funnel(evaluated: List[Candidate], candidates: List[Candidate], cache:
     def s1_tokens(j, r):
         return est_tokens(stage1.SYSTEM + stage1.build_user(j, r)), 60
 
-    def s2_tokens(j, r):
-        return est_tokens(ctx.system + stage2.build_user(j, r)), 350
-
     cost1 = sum(cost_usd(HAIKU, *s1_tokens(j, r)) for j, r in s1_calls)
-    cost2_known = sum(cost_usd(SONNET, *s2_tokens(j, r)) for j, r in s2_calls_known)
-    cost2_extra = ASSUMED_STAGE1_KEEP_RATE * sum(
-        cost_usd(SONNET, *s2_tokens(j, r)) for j, r in s1_calls)
+    cost2_known = sum(stage2.est_cost(ctx, j, r) for j, r in s2_calls_known)
+    cost2_extra = ASSUMED_STAGE1_KEEP_RATE * sum(stage2.est_cost(ctx, j, r) for j, r in s1_calls)
     return {
         "total_jobs": len(evaluated),
         "dropped_by_rules": sum(drops.values()),

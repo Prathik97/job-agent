@@ -131,8 +131,10 @@ def pick_model(score: Optional[int], profile: dict) -> str:
 
 
 def prepare(job_id: str, *, data_dir: Path, master_path: Path, profile_path: Path,
-            jd_override: Optional[str] = None, max_cost: float = MAX_COST_PER_RUN) -> Prepared:
-    job = find_job(data_dir, job_id)
+            jd_override: Optional[str] = None, max_cost: float = MAX_COST_PER_RUN,
+            job_record: Optional[dict] = None) -> Prepared:
+    """`job_record` is a screened_jobs.json-shaped row for a job that is not stored yet (Score a JD)."""
+    job = job_record if job_record is not None else find_job(data_dir, job_id)
     if job.get("jd_partial") and not (jd_override or "").strip():
         raise PartialJDError("this job's description is partial (from an aggregator). Paste the full "
                              "job description and try again.")
@@ -360,9 +362,9 @@ def tailor_job(job_id: str, *, data_dir: Path = Path("data"), master_path: Path 
                profile_path: Path = Path("profile.yaml"), out_root: Path = Path("output/resumes"),
                jd_override: Optional[str] = None, max_cost: float = MAX_COST_PER_RUN, client=None,
                today: Optional[date] = None, extra_files: Optional[Dict[str, str]] = None,
-               answers_path: Optional[Path] = None) -> Result:
+               answers_path: Optional[Path] = None, job_record: Optional[dict] = None) -> Result:
     prep = prepare(job_id, data_dir=data_dir, master_path=master_path, profile_path=profile_path,
-                   jd_override=jd_override, max_cost=max_cost)
+                   jd_override=jd_override, max_cost=max_cost, job_record=job_record)
     log.info("estimated cost for one call: $%.3f (%s)", prep.est_cost, prep.model)
     guard_cost(prep, max_cost)
     usage = Usage()

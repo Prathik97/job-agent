@@ -118,6 +118,7 @@ scoring:
     comp_signal: 10
   thresholds:
     shortlist_min_score: 70
+    stretch_min_score: 55
     tailor_resume_min_score: 75
     top_pick_min_score: 85   # these get the Opus polish
 

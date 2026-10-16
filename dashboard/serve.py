@@ -45,11 +45,13 @@ class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, port: int, data_dir: Path, token: Optional[str] = None, demo: bool = False,
-                 output_dir: Optional[Path] = None, service=None):
+                 output_dir: Optional[Path] = None, service=None, jd_service=None):
         self.data_dir = data_dir
         self.demo = demo
         self.output_dir = (output_dir or Path("output/resumes")).resolve()
         self.service = service
+        self.jd_service = jd_service
+        self.jd_lock = threading.Lock()       # one JD scoring run at a time: each one spends API credit
         self.tailor_lock = threading.Lock()   # one tailor run at a time: each one spends API credit
         self.prepared = PreparedStore(data_dir / "clean" / "prepared.json")
         self.token = token or secrets.token_urlsafe(32)
@@ -180,6 +182,24 @@ class Handler(BaseHTTPRequestHandler):
         self.server.prepared.set(job_id, out["folder"])
         self._json(200, out)
 
+    def _jd(self, action: str, body: dict) -> None:
+        """Score a pasted JD and act on the scored draft. Pasted text is never logged."""
+        svc = self.server.jd_service
+        if svc is None:
+            return self._json(400, {"error": "Score a JD is not available"})
+        if action in ("estimate", "add", "tailor_estimate"):
+            return self._json(200, getattr(svc, action)(body))
+        lock = self.server.jd_lock if action == "score" else self.server.tailor_lock
+        if not lock.acquire(blocking=False):
+            return self._json(409, {"error": "a run is already in progress"})
+        try:
+            out = getattr(svc, action)(body)
+        finally:
+            lock.release()
+        if action == "tailor_run":
+            self.server.prepared.set(str(body.get("job_id")), out["folder"])
+        self._json(200, out)
+
     def _eval(self) -> dict:
         state = build_state(self.server.data_dir, self.server.store)
         return compute(self.server.labels.load(), filtered_totals(state["filtered_out"]))
@@ -193,8 +213,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "bad token"})
         path = urlsplit(self.path).path
         tailor_actions = {"/api/tailor/estimate": "estimate", "/api/tailor/run": "run"}
+        jd_actions = {"/api/jd/estimate": "estimate", "/api/jd/score": "score", "/api/jd/add": "add",
+                      "/api/jd/tailor/estimate": "tailor_estimate", "/api/jd/tailor/run": "tailor_run"}
         prefix = "/api/labels/" if path.startswith("/api/labels/") else "/api/applications/"
-        if path not in tailor_actions and not path.startswith(prefix):
+        if path not in tailor_actions and path not in jd_actions and not path.startswith(prefix):
             return self._json(404, {"error": "not found"})
         body = self._read_body()
         if body is None:
@@ -202,6 +224,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in tailor_actions:
                 self._tailor(tailor_actions[path], body)
+            elif path in jd_actions:
+                self._jd(jd_actions[path], body)
             else:
                 (self._label if prefix == "/api/labels/" else self._apply)(path[len(prefix):], body)
         except StoreError as exc:
@@ -254,8 +278,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port: int, data_dir: Path, token: Optional[str] = None, demo: bool = False,
-                output_dir: Optional[Path] = None, service=None) -> DashboardServer:
-    return DashboardServer(port, data_dir, token, demo, output_dir, service)
+                output_dir: Optional[Path] = None, service=None, jd_service=None) -> DashboardServer:
+    return DashboardServer(port, data_dir, token, demo, output_dir, service, jd_service)
 
 
 def main() -> None:
@@ -275,11 +299,15 @@ def main() -> None:
         from dashboard.service import DemoService
         out_dir = data_dir / "output" / "resumes"
         service = DemoService(data_dir, out_dir)
+        from dashboard.jd import DemoJDScorer
+        jd_service = DemoJDScorer(data_dir, out_dir, Path(__file__).resolve().parent.parent)
     else:
         from dashboard.service import TailorService
         out_dir = Path("output/resumes")
         service = TailorService(data_dir, out_dir, Path("master_profile.json"), Path("profile.yaml"))
-    server = make_server(a.port, data_dir, demo=a.demo, output_dir=out_dir, service=service)
+        from dashboard.jd import JDScorer
+        jd_service = JDScorer(data_dir, out_dir, Path("master_profile.json"), Path("profile.yaml"))
+    server = make_server(a.port, data_dir, demo=a.demo, output_dir=out_dir, service=service, jd_service=jd_service)
     log.info("Dashboard at http://127.0.0.1:%d  (Ctrl+C to stop)", server.port)
     try:
         server.serve_forever()

@@ -30,11 +30,11 @@ class TailorService:
     def _kw(self):
         return dict(data_dir=self.data_dir, master_path=self.master_path, profile_path=self.profile_path)
 
-    def estimate(self, job_id: str, jd: Optional[str]) -> dict:
+    def estimate(self, job_id: str, jd: Optional[str], job_record: Optional[dict] = None) -> dict:
         from config import MAX_COST_PER_RUN
         from tailor import tailor as t
         try:
-            prep = t.prepare(job_id, jd_override=jd, **self._kw())
+            prep = t.prepare(job_id, jd_override=jd, job_record=job_record, **self._kw())
         except t.PartialJDError:
             return {"requires_jd": True}
         except t.TailorError as exc:
@@ -43,10 +43,11 @@ class TailorService:
         return {"requires_jd": False, "model": prep.model, "est_cost": round(prep.est_cost, 3),
                 "worst_cost": round(worst, 3), "max_cost": MAX_COST_PER_RUN}
 
-    def run(self, job_id: str, jd: Optional[str]) -> dict:
+    def run(self, job_id: str, jd: Optional[str], job_record: Optional[dict] = None) -> dict:
         from tailor import tailor as t
         try:
-            res = t.tailor_job(job_id, out_root=self.output_dir, jd_override=jd, **self._kw())
+            res = t.tailor_job(job_id, out_root=self.output_dir, jd_override=jd, job_record=job_record,
+                               **self._kw())
         except t.PartialJDError as exc:
             raise ServiceError(400, str(exc), needs_jd=True)
         except t.FactCheckFailed as exc:
@@ -69,7 +70,9 @@ class DemoService:
     def __init__(self, data_dir: Path, output_dir: Path):
         self.data_dir, self.output_dir = data_dir, output_dir
 
-    def _job(self, job_id: str) -> dict:
+    def _job(self, job_id: str, job_record: Optional[dict] = None) -> dict:
+        if job_record is not None:
+            return job_record
         try:
             rows = json.loads((self.data_dir / "clean" / "screened_jobs.json").read_text())
         except (OSError, ValueError):
@@ -79,15 +82,15 @@ class DemoService:
                 return r
         raise ServiceError(404, "unknown job")
 
-    def estimate(self, job_id: str, jd: Optional[str]) -> dict:
-        job = self._job(job_id)
+    def estimate(self, job_id: str, jd: Optional[str], job_record: Optional[dict] = None) -> dict:
+        job = self._job(job_id, job_record)
         if job.get("jd_partial") and not (jd or "").strip():
             return {"requires_jd": True}
         return {"requires_jd": False, "model": "demo (no model call)", "est_cost": 0.05, "worst_cost": 0.12,
                 "max_cost": 1.0}
 
-    def run(self, job_id: str, jd: Optional[str]) -> dict:
-        job = self._job(job_id)
+    def run(self, job_id: str, jd: Optional[str], job_record: Optional[dict] = None) -> dict:
+        job = self._job(job_id, job_record)
         if job.get("jd_partial") and not (jd or "").strip():
             raise ServiceError(400, "partial JD: paste the full job description first.", needs_jd=True)
         name = "".join(c if c.isalnum() else "-" for c in f"{job['company']}_{job['title']}")[:60] + "_demo"

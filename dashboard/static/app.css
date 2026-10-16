@@ -76,3 +76,16 @@ td .labelbox input { width: 100%; }
 .files .l { width: 100%; }
 button:disabled, select:disabled, input:disabled { opacity: .5; cursor: not-allowed; }
 .toggle { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+
+.jdform textarea.jdbox { width: 100%; min-height: 260px; resize: vertical; margin-bottom: 8px; }
+.jdgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.jdfield { display: flex; flex-direction: column; gap: 2px; }
+.jdfield input { width: 100%; }
+.jdresults { margin-top: 16px; }
+.warnbox { background: var(--card); border: 1px solid var(--warn); border-left-width: 4px; border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 12px; color: var(--warn); }
+.scorecard { display: flex; gap: 24px; align-items: center; }
+.jdcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+ul.plain { margin: 0; padding-left: 18px; }
+ul.plain li { margin: 4px 0; }
+.chip.backed { color: var(--good); } .chip.notbacked { color: var(--warn); }

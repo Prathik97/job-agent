@@ -12,12 +12,13 @@ from typing import Dict, Optional
 from scout.schema import Job
 from config import (CAPPED_ROLE_FAMILIES, SONNET, STAGE2_MAX_CHARS, STALE_NOTE_AFTER_DAYS,
                     STALE_SKIP_AFTER_DAYS)
-from screener.llm import Usage, ask_json
+from screener.llm import Usage, ask_json, cost_usd
 from screener.models import RuleResult, Stage2Raw, Stage2Result
-from screener.text import sha, truncate
+from screener.text import est_tokens, sha, truncate
 
 VERSION = "s2v3"
 MAX_OUT_TOKENS = 700
+EST_OUT_TOKENS = 350   # typical answer length, for cost estimates only
 
 RUBRIC_HELP = {
     "role_and_title_fit": "how closely the role and title match the target titles",
@@ -125,9 +126,25 @@ def make_validator(ctx: ScoringContext):
     return validate
 
 
-def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Usage) -> Stage2Result:
-    return ask_json(client, SONNET, ctx.system, build_user(job, rule),
-                    make_validator(ctx), usage, MAX_OUT_TOKENS)
+def est_cost(ctx: ScoringContext, job: Job, rule: RuleResult) -> float:
+    """Estimated USD for one Stage 2 call. The pipeline funnel and the dashboard both use it."""
+    return cost_usd(SONNET, est_tokens(ctx.system + build_user(job, rule)), EST_OUT_TOKENS)
+
+
+def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Usage,
+              quiet: bool = False) -> Stage2Result:
+    """`quiet` swaps pydantic's detailed error (which can quote model output) for a fixed message,
+    so a retry warning in the logs never carries any posting text."""
+    validate = make_validator(ctx)
+    if quiet:
+        inner = validate
+
+        def validate(data: dict) -> Stage2Result:
+            try:
+                return inner(data)
+            except ValueError:
+                raise ValueError("model output did not match the schema") from None
+    return ask_json(client, SONNET, ctx.system, build_user(job, rule), validate, usage, MAX_OUT_TOKENS)
 
 
 CAPPED_FAMILIES = CAPPED_ROLE_FAMILIES

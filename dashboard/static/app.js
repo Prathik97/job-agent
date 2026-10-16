@@ -16,6 +16,8 @@ const ui = {
   sample: { on: false, ids: [] },
   showAllStretch: false,
   showFlagged: false,
+  // Score a JD: held in memory only (never in localStorage), so a pasted JD does not outlive the page.
+  jd: { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null, status: "" },
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
 };
 
@@ -370,6 +372,163 @@ function renderAll() {
     el("span", { class: "count", id: "count" })], draw };
 }
 
+// ---- Score a JD ----
+// The pasted text is sent only to this server's /api/jd/* routes (token required) and kept in memory here.
+async function postJD(path, body) {
+  const res = await fetch(path, { method: "POST",
+    headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN }, body: JSON.stringify(body) });
+  let json = {};
+  try { json = await res.json(); } catch (e) { /* non-JSON error body */ }
+  if (res.status === 403) say("Session expired. Reload this page.");
+  return { ok: res.ok, status: res.status, json };
+}
+
+function renderJD() {
+  const s = ui.jd;
+  const jdBox = el("textarea", { class: "jdbox", rows: 16, maxlength: 100000, "aria-label": "Full job description",
+    placeholder: "Paste the full job description here (required)" });
+  jdBox.value = s.jd;
+  const field = (key, label, ph) => {
+    const input = el("input", { type: "text", maxlength: 200, placeholder: ph, "aria-label": label, value: s[key] });
+    input.addEventListener("input", () => { s[key] = input.value; invalidate(); });
+    return el("label", { class: "jdfield" }, el("span", { class: "l", text: label }), input);
+  };
+  const estBtn = el("button", { class: "btn", text: "Get cost estimate" });
+  const scoreBtn = el("button", { class: "btn primary", text: "Score this JD", disabled: true });
+  const clearBtn = el("button", { class: "btn", text: "Clear" });
+  const status = el("div", { class: "modalstatus", role: "status" });
+  const results = el("div", { class: "jdresults" });
+
+  const body = () => ({ jd: s.jd, company: s.company.trim(), title: s.title.trim(), location: s.location.trim(), url: s.url.trim() });
+  function invalidate() { s.est = null; scoreBtn.disabled = true; status.textContent = s.jd.trim() ? "Get the cost estimate, then score." : ""; }
+  jdBox.addEventListener("input", () => { s.jd = jdBox.value; invalidate(); });
+
+  function showEstimate() {
+    const e = s.est;
+    if (!e) return;
+    const parts = e.cached ? "Cached from an earlier run: no model call, $0.00."
+      : "Estimated cost $" + e.est_cost.toFixed(3) + " (details $" + e.extract_cost.toFixed(3) + ", scoring $" + e.score_cost.toFixed(3) +
+        "), limit $" + e.max_cost.toFixed(2) + ".";
+    status.textContent = e.over_limit ? parts + " Above the limit, so scoring is blocked." : parts;
+    scoreBtn.disabled = e.over_limit;
+  }
+
+  estBtn.addEventListener("click", async () => {
+    if (!s.jd.trim()) { status.textContent = "Paste the job description first."; return; }
+    status.textContent = "Estimating...";
+    const r = await postJD("/api/jd/estimate", body());
+    if (!r.ok) { status.textContent = r.json.error || "Estimate failed."; return; }
+    s.est = r.json; showEstimate();
+  });
+  scoreBtn.addEventListener("click", async () => {
+    scoreBtn.disabled = estBtn.disabled = true; status.textContent = "Scoring... this takes a few seconds.";
+    const r = await postJD("/api/jd/score", body());
+    estBtn.disabled = false;
+    if (!r.ok) { status.textContent = r.json.error || "Scoring failed."; scoreBtn.disabled = !s.est || s.est.over_limit; return; }
+    s.result = r.json; s.tailor = null; s.added = null; s.est = null;
+    status.textContent = "Done. Cost of this run $" + r.json.cost.toFixed(3) + (r.json.demo ? " (demo, no model called)." : ".");
+    drawResult();
+  });
+  clearBtn.addEventListener("click", () => {
+    Object.assign(s, { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null });
+    showTab("jd");
+  });
+
+  function drawResult() {
+    const r = s.result;
+    if (!r) { results.replaceChildren(); return; }
+    const pctOf = (n, m) => (100 * n / Math.max(1, m)).toFixed(1) + "%";
+    const list = (title, items, empty) => el("div", { class: "jdcol" }, el("h2", { text: title }),
+      items.length ? el("ul", { class: "plain" }, items.map(t => el("li", { text: t }))) : el("div", { class: "l", text: empty }));
+    const pulled = [r.extracted.title ? "title" : "", r.extracted.company ? "company" : "", r.extracted.location ? "location" : ""].filter(Boolean);
+    const lowered = r.uncapped_verdict !== r.verdict;
+    const m = r.jd_match;
+
+    const header = el("div", { class: "section" },
+      el("h2", { text: r.company + " — " + r.title }),
+      el("div", { class: "l", text: [r.location || "location not stated", "tier " + r.tier,
+        r.years_required ? r.years_required + " years asked" : "years not stated", "family " + r.role_family].join(" · ") }),
+      pulled.length ? el("div", { class: "l", text: "Taken from the JD by the model: " + pulled.join(", ") + ". Check them." }) : "",
+      r.demo ? el("div", { class: "note", text: "DEMO: no model was called. The score and keywords are stand-ins; the rules and the keyword check are real." }) : "");
+    const warns = r.warnings.map(w => el("div", { class: "warnbox" },
+      el("strong", { text: "The pipeline's rules would drop this job. " }), w.text, " It was scored anyway."));
+    const score = el("div", { class: "section scorecard" },
+      el("div", {}, el("div", { class: "headline", text: String(r.score) }), el("div", { class: "l", text: "out of 100" })),
+      el("div", {}, el("span", { class: "chip " + r.verdict, text: r.verdict }),
+        el("div", { class: "l", text: lowered ? "Model verdict was " + r.uncapped_verdict + "; lowered by the caps below."
+          : "apply at " + r.thresholds.apply + "+, stretch at " + r.thresholds.stretch + "+" })));
+    const bars = el("div", { class: "bars" }, el("h2", { text: "Score by category" }), r.subscores.map(c =>
+      el("div", { class: "barrow" }, el("span", { text: c.label }),
+        el("div", { class: "bartrack" }, el("div", { class: "bar", style: "width:" + pctOf(c.points, c.max) })),
+        el("span", { class: "num", text: c.points + " / " + c.max }))));
+    const caps = el("div", { class: "section" }, el("h2", { text: "Caps applied" }),
+      r.caps.length ? r.caps.map(c => el("span", { class: "note", text: c })) : el("div", { class: "l", text: "None." }));
+    const info = r.info.length ? el("div", { class: "section" }, r.info.map(t => el("span", { class: "note", text: t }))) : "";
+    const trunc = r.truncated ? el("div", { class: "note", text: "This JD is over " + r.limit_chars + " characters, so the middle is trimmed before scoring, as in the pipeline." }) : "";
+
+    let match;
+    if (!m.available) {
+      match = el("div", { class: "l", text: m.reason });
+    } else {
+      const rows = m.items.map(i => el("tr", {}, el("td", { text: i.keyword }),
+        el("td", {}, el("span", { class: "chip " + (i.backed ? "backed" : "notbacked"), text: i.backed ? "backed" : "not backed" })),
+        el("td", { class: "l", text: i.backed ? i.where : "not claimed on a resume" })));
+      match = el("div", {}, el("div", { class: "l", text: "Backed " + m.backed + " of " + m.items.length + " by master_profile.json (same check as jd_keywords.md)." }),
+        m.items.length ? el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, el("tr", {},
+          ["Keyword or skill", "Status", "Where"].map(h => el("th", { text: h })))), el("tbody", {}, rows))) : "");
+    }
+
+    // actions
+    const actStatus = el("div", { class: "modalstatus", role: "status" });
+    const actOut = el("div", {});
+    const tailorBtn = el("button", { class: "btn primary", text: "Tailor resume" });
+    const addBtn = el("button", { class: "btn", text: "Add to pipeline" });
+    const runBtn = el("button", { class: "btn primary", text: "Run tailor", hidden: true });
+    const showFiles = t => actOut.replaceChildren(fileLinks(t.folder, t.files));
+    if (s.tailor) showFiles(s.tailor);
+    if (s.added) actStatus.textContent = s.added;
+    tailorBtn.addEventListener("click", async () => {
+      actStatus.textContent = "Estimating...";
+      const e = await postJD("/api/jd/tailor/estimate", { job_id: r.id });
+      if (!e.ok) { actStatus.textContent = e.json.error || "Estimate failed."; return; }
+      actStatus.textContent = "Model: " + e.json.model + ". Estimated cost $" + e.json.est_cost.toFixed(3) + " (worst case $" +
+        e.json.worst_cost.toFixed(3) + ", limit $" + e.json.max_cost.toFixed(2) + "). Click Run tailor to spend it.";
+      runBtn.hidden = false;
+    });
+    runBtn.addEventListener("click", async () => {
+      runBtn.disabled = true; actStatus.textContent = "Tailoring... this takes up to a minute."; actOut.replaceChildren();
+      const t = await postJD("/api/jd/tailor/run", { job_id: r.id });
+      runBtn.disabled = false;
+      if (!t.ok) { actStatus.textContent = t.json.error || "Tailor failed.";
+        actOut.replaceChildren(...(t.json.violations || []).map(v => el("div", { class: "note", text: v }))); return; }
+      s.tailor = t.json; data.prepared[r.id] = { folder: t.json.folder, files: t.json.files };
+      actStatus.textContent = "Done (" + t.json.model + ", $" + t.json.cost.toFixed(3) + "). The fact check passed.";
+      runBtn.hidden = true; showFiles(t.json);
+    });
+    addBtn.addEventListener("click", async () => {
+      const a = await postJD("/api/jd/add", { job_id: r.id });
+      if (!a.ok) { actStatus.textContent = a.json.error || "Could not add."; return; }
+      s.added = a.json.added ? "Added to All scored with source manual. Mark it applied from there or from Ready to apply."
+        : "Already in the pipeline (source " + (a.json.source || "unknown") + "); nothing changed.";
+      actStatus.textContent = s.added;
+      await loadState(); renderStrip();
+    });
+    const actions = el("div", { class: "section" }, el("h2", { text: "Actions" }),
+      el("div", { class: "toolbar" }, tailorBtn, runBtn, addBtn), actStatus, actOut);
+
+    results.replaceChildren(header, ...warns, score, bars, caps, info, trunc,
+      el("div", { class: "jdcols section" }, list("Why it fits (top 3)", r.reasons, "No reasons returned."),
+        list("Gaps (top 3)", r.gaps, "No gaps found.")),
+      el("h2", { text: "JD match" }), match, actions);
+  }
+
+  const inputs = el("div", { class: "jdgrid" }, field("company", "Company (optional)", "taken from the JD if blank"),
+    field("title", "Title (optional)", "taken from the JD if blank"), field("location", "Location (optional)", "e.g. Bengaluru"),
+    field("url", "Source URL (optional, not fetched)", "https://..."));
+  return { toolbar: [estBtn, scoreBtn, clearBtn, el("span", { class: "count", text: "Nothing is fetched. The text stays on this computer." })],
+    draw() { swapHolder(el("div", { class: "jdform" }, jdBox, inputs, status, results)); showEstimate(); drawResult(); } };
+}
+
 const SAMPLE_SIZE = 50;
 
 function drawSample() {
@@ -507,7 +666,7 @@ function renderEval() {
   } };
 }
 
-const TABS = { eval: renderEval, ready: renderReady, pipeline: renderPipeline, all: renderAll, filtered: renderFiltered, runs: renderRuns };
+const TABS = { eval: renderEval, ready: renderReady, pipeline: renderPipeline, all: renderAll, jd: renderJD, filtered: renderFiltered, runs: renderRuns };
 let current = null;
 
 function showTab(name) {
