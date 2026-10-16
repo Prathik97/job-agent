@@ -106,7 +106,9 @@ def run(companies_path: Path, out_path: Path, profile_path: Optional[Path] = Pat
         old = prev_by_id.get(job.id)
         if old:
             job.also_listed_on = list(dict.fromkeys([*job.also_listed_on, *old.also_listed_on]))
-    merged = {j.id: j for j in merge_sources([*found.values(), *agg.values()])}
+    # Firecrawl jobs come from their own scout (credit-capped), so they are carried over here.
+    fc = {j.id: j for j in load_previous(out_path.with_name("firecrawl_jobs.json"))}
+    merged = {j.id: j for j in merge_sources([*found.values(), *fc.values(), *agg.values()])}
     for job in merged.values():  # first_seen_at survives re-runs; only genuinely new jobs get now
         old = prev_by_id.get(job.id)
         if old:

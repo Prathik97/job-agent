@@ -11,7 +11,7 @@ from screener.titles import normalize_title
 
 ATS_SOURCES = ("greenhouse", "lever", "ashby", "workday", "smartrecruiters")
 AGGREGATOR_SOURCES = ("jsearch", "adzuna")
-SOURCE_RANK = {**{s: 0 for s in ATS_SOURCES}, "jsearch": 1, "adzuna": 2}
+SOURCE_RANK = {**{s: 0 for s in ATS_SOURCES}, "firecrawl": 1, "jsearch": 2, "adzuna": 3}
 
 COMPANY_SUFFIXES = {"inc", "pvt", "ltd", "technologies", "labs", "india", "private", "limited"}
 _PLACEHOLDERS = {"", "n a", "na", "none", "null", "unknown", "tbd"}

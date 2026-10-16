@@ -36,6 +36,10 @@ ADZUNA_MONTHLY_CALLS = 400       # TODO: update to your real Adzuna monthly limi
 JSEARCH_MAX_CALLS_PER_RUN = 4
 ADZUNA_MAX_CALLS_PER_RUN = 10
 
+# Firecrawl (last-resort scraping): 1 credit per page. Hard cap per run, cache lifetime in hours.
+FIRECRAWL_MAX_CREDITS_PER_RUN = 40
+FIRECRAWL_CACHE_HOURS = 24
+
 # Spend guard: a run aborts before any Stage 1 / Stage 2 call if the estimated cost is above
 # this, unless --max-cost overrides it.
 MAX_COST_PER_RUN = 1.00
