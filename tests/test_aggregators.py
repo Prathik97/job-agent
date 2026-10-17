@@ -216,7 +216,7 @@ def test_429_stops_that_api_only(monkeypatch, tmp_path, caplog):
 def test_budget_exhausted_makes_no_call(monkeypatch, tmp_path):
     monkeypatch.setenv("RAPIDAPI_KEY", "k")
     t = UsageTracker(tmp_path / "u.json")
-    t.data["jsearch"] = {"month": date.today().strftime("%Y-%m"), "month_calls": 100,
+    t.data["jsearch"] = {"month": date.today().strftime("%Y-%m"), "month_calls": jsearch.LIMITS["month"],
                          "day": date.today().isoformat(), "day_calls": 0}
     session = FakeSession([(200, JSEARCH_RAW)])
     assert jsearch.scout(Q, t, session) == [] and session.calls == []
@@ -322,3 +322,35 @@ def test_last_call_of_the_month_is_used_but_never_exceeded(monkeypatch, tmp_path
     jsearch.scout(Q, t, session)                       # two queries wanted, one call left
     assert len(session.calls) == 1 and t.month_calls("jsearch") == 100
     assert jsearch.scout(Q, t, FakeSession([(200, JSEARCH_RAW)])) == []   # nothing beyond the quota
+
+
+def test_provisional_limits_are_set_and_marked():
+    import config
+    from pathlib import Path
+    assert (config.ADZUNA_DAILY_CALLS, config.ADZUNA_MONTHLY_CALLS) == (25, 300)
+    assert (config.JSEARCH_DAILY_CALLS, config.JSEARCH_MONTHLY_CALLS) == (4, 120)
+    assert adzuna.LIMITS == {"month": 300, "day": 25} and jsearch.LIMITS == {"month": 120, "day": 4}
+    text = Path(config.__file__).read_text()
+    assert text.count("PROVISIONAL") >= 5 and "replace" in text.lower()
+
+
+def test_jsearch_daily_limit_stops_before_exceeding(monkeypatch, tmp_path):
+    monkeypatch.setenv("RAPIDAPI_KEY", "k")
+    t = UsageTracker(tmp_path / "u.json")
+    t.data["jsearch"] = {"month": date.today().strftime("%Y-%m"), "month_calls": 3,
+                         "day": date.today().isoformat(), "day_calls": 3}   # 1 of the 4 daily calls left
+    session = FakeSession([(200, JSEARCH_RAW), (200, JSEARCH_RAW)])
+    jsearch.scout(Q, t, session)
+    assert len(session.calls) == 1 and t.data["jsearch"]["day_calls"] == 4
+    assert jsearch.scout(Q, t, FakeSession([(200, JSEARCH_RAW)])) == []
+
+
+def test_402_on_adzuna_stops_adzuna_but_jsearch_still_runs(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    monkeypatch.setenv("RAPIDAPI_KEY", "k")
+    t = UsageTracker(tmp_path / "u.json")
+    adz_session = FakeSession([(402, {}), (200, ADZUNA_RAW)])
+    assert adzuna.scout(Q, t, adz_session) == [] and len(adz_session.calls) == 1   # stopped after the 402
+    js_session = FakeSession([(200, JSEARCH_RAW), (200, JSEARCH_RAW)])
+    assert len(jsearch.scout(Q, t, js_session)) == 2                               # unaffected

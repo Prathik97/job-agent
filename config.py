@@ -24,13 +24,14 @@ HEAD_FRACTION = 0.7
 ASSUMED_STAGE1_KEEP_RATE = 0.5
 
 # ---------------------------------------------------------------
-# Aggregator API budgets. Deliberately conservative placeholders.
-# TODO: update these once you have signed up and read your real plan limits
-# (RapidAPI dashboard for JSearch, Adzuna developer dashboard for Adzuna).
+# Aggregator API budgets. PROVISIONAL: these are working guesses, NOT your real plan limits.
+# TODO: replace them with the limits shown in the Adzuna developer dashboard and the RapidAPI
+# dashboard for JSearch. A 429 or 402 from an API stops only that API for the rest of the run.
 # ---------------------------------------------------------------
-JSEARCH_MONTHLY_CALLS = 100      # TODO: update to your real JSearch free-plan limit
-ADZUNA_DAILY_CALLS = 20          # TODO: update to your real Adzuna daily limit
-ADZUNA_MONTHLY_CALLS = 400       # TODO: update to your real Adzuna monthly limit
+ADZUNA_DAILY_CALLS = 25          # PROVISIONAL - replace with your real Adzuna daily limit
+ADZUNA_MONTHLY_CALLS = 300       # PROVISIONAL - replace with your real Adzuna monthly limit
+JSEARCH_DAILY_CALLS = 4          # PROVISIONAL - replace with your real JSearch daily limit
+JSEARCH_MONTHLY_CALLS = 120      # PROVISIONAL - replace with your real JSearch monthly limit
 
 # Per-run caps so one run cannot burn the month. Queries rotate across runs (see scout/queries.py).
 JSEARCH_MAX_CALLS_PER_RUN = 4

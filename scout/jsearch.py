@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import requests
 
-from config import JSEARCH_MAX_CALLS_PER_RUN, JSEARCH_MONTHLY_CALLS
+from config import JSEARCH_DAILY_CALLS, JSEARCH_MAX_CALLS_PER_RUN, JSEARCH_MONTHLY_CALLS
 from scout.aggregator import api_get, run_queries
 from scout.http import html_to_text, make_session
 from scout.queries import Query
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 SOURCE = "jsearch"
 URL = "https://jsearch.p.rapidapi.com/search-v2"   # /search now answers 404 "Endpoint does not exist"
 HOST = "jsearch.p.rapidapi.com"
-LIMITS = {"month": JSEARCH_MONTHLY_CALLS}
+LIMITS = {"month": JSEARCH_MONTHLY_CALLS, "day": JSEARCH_DAILY_CALLS}
 
 
 def to_params(q: Query) -> dict:
