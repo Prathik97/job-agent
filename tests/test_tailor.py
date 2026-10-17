@@ -81,7 +81,7 @@ class FakeClient:
                                usage=SimpleNamespace(input_tokens=3000, output_tokens=1500))
 
 
-needs_font = pytest.mark.skipif(not any(Path(a).exists() for a, _ in layout.FONT_CANDIDATES),
+needs_font = pytest.mark.skipif(not any(all(Path(f).exists() for f in fonts) for fonts in layout.FONT_CANDIDATES),
                                 reason="needs a TTF font with the rupee sign")
 
 
@@ -233,7 +233,7 @@ def test_happy_path_writes_the_package(env):
     from docx import Document
     doc = Document(str(res.folder / "resume.docx"))
     assert doc.tables == [] and len(doc.inline_shapes) == 0
-    assert "Asha Rao" in "\n".join(p.text for p in doc.paragraphs)
+    assert "ASHA RAO" in "\n".join(p.text for p in doc.paragraphs)
 
 
 @needs_font
@@ -310,3 +310,42 @@ def test_pdf_is_verified_to_two_pages_and_long_content_is_trimmed(env):
     assert len(dropped) > 0                       # bullets were dropped, and the list says which
     name, contact, sections = t.build_sections(plan, prep)
     assert render.fit_pdf(name, contact, sections)[2] <= 2
+
+
+# ---------- layout mirrors data/raw/resume_reference.pdf ----------
+
+def test_layout_order_headings_and_date_format():
+    assert layout.SECTION_ORDER == ["summary", "skills", "experience", "projects", "education", "certifications"]
+    assert [layout.HEADINGS[k] for k in layout.SECTION_ORDER if k != "projects"] == [
+        "PROFESSIONAL SUMMARY", "SKILLS", "WORK EXPERIENCE", "EDUCATION", "CERTIFICATIONS"]
+    assert layout.DATE_JOINER == " to " and layout.META_SEPARATOR == " | "
+
+
+def test_split_metrics_bolds_numbers_not_wording():
+    from tailor.render import split_metrics
+    text = "Cut ₹90L in cost: +85% session time, 2x productivity, 500+ staff, 3-phase rollout, ₹25Cr ARR"
+    bold = [seg for seg, m in split_metrics(text) if m]
+    assert bold == ["₹90L", "+85%", "2x", "500+", "₹25Cr"]
+    assert "".join(seg for seg, _ in split_metrics(text)) == text
+
+
+@needs_font
+def test_rendered_pdf_follows_reference_structure():
+    from tailor import render
+    sections = [("PROFESSIONAL SUMMARY", [("para", "Seven years of product work.")]),
+                ("WORK EXPERIENCE", [("role", "Acme Pvt. Ltd.", "Product Manager", "Hyderabad | August 2024 to July 2026"),
+                                     ("bullet", "Cut cost by 63% with a new platform.")]),
+                ("EDUCATION", [("role", "NMIT", "Bachelor of Engineering", "Bengaluru | August 2015 to May 2019")])]
+    pdf, _, pages = render.fit_pdf("Asha Rao", "Headline line\nasha@example.com | +91-9000000000", sections)
+    text = "\n".join(l.strip() for l in render.pdf_text(pdf).splitlines())
+    assert pages == 1 and text.startswith("ASHA RAO\nHeadline line\nasha@example.com")
+    assert text.index("PROFESSIONAL SUMMARY") < text.index("WORK EXPERIENCE") < text.index("EDUCATION")
+    assert "Acme Pvt. Ltd.\nProduct Manager\nHyderabad | August 2024 to July 2026" in text
+    assert "•" in text
+
+
+@needs_font
+def test_metric_runs_use_the_bold_font():
+    from tailor import render
+    pdf = render.build_pdf("Asha Rao", "h\nc", [("WORK EXPERIENCE", [("bullet", "Cut cost by 63% overall.")])], 10)
+    assert b"Georgia-Bold" in pdf  # bold face is embedded and used for the metric

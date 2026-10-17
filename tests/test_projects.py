@@ -134,11 +134,12 @@ def test_projects_render_as_personal_projects_never_as_employment(env):
                      {"id": "checker", "text": PROJECTS[1]["description"]})
     _, _, sections = t.build_sections(plan, p)
     by_head = {h: blocks for h, blocks in sections}
-    assert "Personal Projects" in by_head
-    roles = [b[1] for b in by_head["Personal Projects"] if b[0] == "role"]
-    assert roles == ["Example PRD Copilot (personal project)", "Example Score Checker (personal project)"]
-    assert "Example PRD Copilot" not in json.dumps(by_head["Experience"])
-    assert [h for h, _ in sections].index("Personal Projects") == [h for h, _ in sections].index("Experience") + 1
+    assert "PERSONAL PROJECTS" in by_head
+    roles = [(b[1], b[2]) for b in by_head["PERSONAL PROJECTS"] if b[0] == "role"]
+    assert roles == [("Example PRD Copilot", "Personal project"), ("Example Score Checker", "Personal project")]
+    assert "Example PRD Copilot" not in json.dumps(by_head["WORK EXPERIENCE"])
+    heads = [h for h, _ in sections]
+    assert heads.index("PERSONAL PROJECTS") == heads.index("WORK EXPERIENCE") + 1
     assert "Personal projects shown" in t.changes_md(plan, p, [])
 
 

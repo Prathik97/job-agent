@@ -179,19 +179,27 @@ def _title_case(key: str) -> str:
     return key.replace("_", " ").title().replace(" And ", " and ")
 
 
+def _span(item: dict) -> str:
+    return f"{item['location']}{layout.META_SEPARATOR}{item['start']}{layout.DATE_JOINER}{item['end']}"
+
+
 def build_sections(plan: TailorPlan, prep: Prepared) -> Tuple[str, str, List[Tuple[str, List[tuple]]]]:
+    """Returns (name, header, sections). `header` is the headline line, a newline, then the
+    contact line, both centred under the name. Section order and wording come from layout.py."""
     m = prep.master_view
     ident = prep.facts.master["identity"]
     contact = " | ".join(x for x in [ident.get("email"), ident.get("phone"), ident.get("linkedin"),
                                       ident.get("portfolio")] if x)
-    ach = achievements_by_id(m)
+    header = f"{m['headline_variants'][plan.headline_key]}\n{contact}"
     sections: Dict[str, List[tuple]] = {}
-    sections["summary"] = [("para", m["headline_variants"][plan.headline_key])] + [("para", s) for s in plan.summary]
+    sections["summary"] = [("para", " ".join(s.strip() for s in plan.summary))]
     exp_blocks: List[tuple] = []
     by_id = {e["id"]: e for e in m["experience"]}
     for role in plan.experience:
         e = by_id[role.id]
-        exp_blocks.append(("role", f"{e['title']}, {e['company']}", f"{e['location']} | {e['start']} - {e['end']}"))
+        exp_blocks.append(("role", e["company"], e["title"], _span(e)))
+        if e.get("context"):
+            exp_blocks.append(("para", e["context"].strip()))
         exp_blocks += [("bullet", b.text.strip()) for b in role.bullets]
     sections["experience"] = exp_blocks
     if plan.projects:
@@ -200,20 +208,19 @@ def build_sections(plan: TailorPlan, prep: Prepared) -> Tuple[str, str, List[Tup
         for pp in plan.projects:
             pr = by_project[pp.id]
             meta = " | ".join(x for x in [pr.get("status"), ", ".join(pr.get("tools") or []), pr.get("link")] if x)
-            blocks += [("role", f"{pr['name']} (personal project)", meta or "Personal project"),
+            blocks += [("role", pr["name"], "Personal project", meta or "Personal project"),
                        ("bullet", pp.text.strip())]
         sections["projects"] = blocks
-    sections["skills"] = [("para", f"{_title_case(cat)}: {', '.join(items)}") for cat, items in plan.skills.items() if items]
+    sections["skills"] = [("para", f"{_title_case(cat)}: {', '.join(items)}.") for cat, items in plan.skills.items() if items]
     ed = m["education"]
-    sections["education"] = [("para", f"{ed['degree']}, {ed['institution']}"),
-                             ("para", f"{ed['location']} | {ed['start']} - {ed['end']}")]
+    sections["education"] = [("role", ed["institution"], ed["degree"], _span(ed))]
     sections["certifications"] = [("bullet", c) for c in plan.certifications]
     ordered = [(layout.HEADINGS[k], sections[k]) for k in layout.SECTION_ORDER if sections.get(k)]
-    return ident["name"], contact, ordered
+    return ident["name"], header, ordered
 
 
 def resume_text(name: str, contact: str, sections) -> str:
-    lines = [name, contact]
+    lines = [name, *contact.split("\n")]
     for heading, blocks in sections:
         lines.append(heading)
         lines += [" ".join(b[1:]) for b in blocks]
