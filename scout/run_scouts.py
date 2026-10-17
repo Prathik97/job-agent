@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 
 from scout import adzuna, ashby, greenhouse, jsearch, lever, smartrecruiters, workday
 from scout.http import cache_changed, make_session
+from scout.logsafe import configure_logging
 from scout.normalize import AGGREGATOR_SOURCES, merge_sources
 from scout.queries import build_queries
 from scout.schema import Job
@@ -129,7 +130,7 @@ def main() -> None:
     parser.add_argument("--profile", type=Path, default=Path("profile.yaml"))
     parser.add_argument("--no-aggregators", action="store_true", help="ATS scouts only")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    configure_logging("%(levelname)s %(message)s")
     load_dotenv()
     run(args.companies, args.out, args.profile, aggregators=not args.no_aggregators)
 

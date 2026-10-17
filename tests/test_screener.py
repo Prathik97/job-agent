@@ -587,3 +587,17 @@ def test_response_text_skips_leading_thinking_block():
     import pytest
     with pytest.raises(ValueError):
         response_text(NS(content=[NS(type="thinking", thinking="x")]))
+
+
+def test_truncated_reply_is_reported_and_keeps_raw_for_diagnosis(caplog):
+    from types import SimpleNamespace as NS
+    from screener.llm import ScreenError, Usage, ask_json
+    cut = '{"role_family": "product", "scores": {"a": 1}, "reasons": ["cut off mid'
+
+    class C:
+        messages = NS(create=lambda **kw: NS(content=[NS(type="text", text=cut)], stop_reason="max_tokens",
+                                             usage=NS(input_tokens=1, output_tokens=700)))
+    with pytest.raises(ScreenError) as err:
+        ask_json(C, "m", "s", "u", lambda d: d, Usage(), 700, attempts=3)
+    assert err.value.raw == cut
+    assert caplog.text.count("cut off at max_tokens") == 3 and caplog.text.count("invalid JSON") == 3

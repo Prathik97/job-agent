@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/zsh</string>
-        <string>/Users/prathikkumar/Desktop/job_agent/scheduler/run_daily.sh</string>
+        <string>__PROJECT_DIR__/scheduler/run_daily.sh</string>
     </array>
     <!-- 8:30 AM in the Mac's local time zone (IST on this Mac). If the Mac is asleep, it runs on wake. -->
     <key>StartCalendarInterval</key>
@@ -17,11 +17,11 @@
         <key>Minute</key>
         <integer>30</integer>
     </dict>
-    <!-- No log files: results are written to data/clean/run_stats.jsonl by the pipeline itself. -->
+    <!-- Output goes to data/clean/scheduler.log (gitignored). Keys are redacted from log lines. -->
     <key>StandardOutPath</key>
-    <string>/dev/null</string>
+    <string>__PROJECT_DIR__/data/clean/scheduler.log</string>
     <key>StandardErrorPath</key>
-    <string>/dev/null</string>
+    <string>__PROJECT_DIR__/data/clean/scheduler.log</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>

@@ -17,7 +17,8 @@ from screener.models import RuleResult, Stage2Raw, Stage2Result
 from screener.text import est_tokens, sha, truncate
 
 VERSION = "s2v3"
-MAX_OUT_TOKENS = 700
+MAX_OUT_TOKENS = 1200   # 700 cut long replies off mid-JSON (two jobs failed on it)
+ATTEMPTS = 2   # one retry on invalid JSON (CLAUDE.md rule 7); raise only to diagnose
 EST_OUT_TOKENS = 350   # typical answer length, for cost estimates only
 
 RUBRIC_HELP = {
@@ -144,7 +145,7 @@ def score_job(client, job: Job, rule: RuleResult, ctx: ScoringContext, usage: Us
                 return inner(data)
             except ValueError:
                 raise ValueError("model output did not match the schema") from None
-    return ask_json(client, SONNET, ctx.system, build_user(job, rule), validate, usage, MAX_OUT_TOKENS)
+    return ask_json(client, SONNET, ctx.system, build_user(job, rule), validate, usage, MAX_OUT_TOKENS, ATTEMPTS)
 
 
 CAPPED_FAMILIES = CAPPED_ROLE_FAMILIES

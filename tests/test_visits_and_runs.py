@@ -226,17 +226,39 @@ def test_scheduled_trigger_is_recorded(paths):
     assert json.loads((paths.clean / "run_stats.jsonl").read_text())["trigger"] == "scheduled"
 
 
-# ---------- launchd plist ----------
+# ---------- launchd plist template and key redaction ----------
 
-PLIST = Path(__file__).resolve().parent.parent / "scheduler" / "com.prathikkumar.jobagent.daily.plist"
+SCHED = Path(__file__).resolve().parent.parent / "scheduler"
+TEMPLATE = SCHED / "com.prathikkumar.jobagent.daily.plist.template"
 
 
-def test_plist_runs_daily_at_0830_and_logs_nowhere_else():
-    d = plistlib.loads(PLIST.read_bytes())
-    assert d["StartCalendarInterval"] == {"Hour": 8, "Minute": 30}
-    assert d["StandardOutPath"] == "/dev/null" and d["StandardErrorPath"] == "/dev/null"
-    assert d["RunAtLoad"] is False
-    script = Path(d["ProgramArguments"][1])
-    assert script.name == "run_daily.sh" and script.parent.parent.name == "job_agent"
-    body = (Path(__file__).resolve().parent.parent / "scheduler" / "run_daily.sh").read_text()
+def test_plist_template_has_placeholder_paths_and_logs_to_scheduler_log():
+    text = TEMPLATE.read_text()
+    assert "/Users/" not in text and "__PROJECT_DIR__" in text      # no personal path is committed
+    d = plistlib.loads(text.replace("__PROJECT_DIR__", "/x/job_agent").encode())
+    assert d["StartCalendarInterval"] == {"Hour": 8, "Minute": 30} and d["RunAtLoad"] is False
+    assert d["ProgramArguments"][1] == "/x/job_agent/scheduler/run_daily.sh"
+    assert d["StandardOutPath"] == d["StandardErrorPath"] == "/x/job_agent/data/clean/scheduler.log"
+    body = (SCHED / "run_daily.sh").read_text()
     assert "run_pipeline.py" in body and "--trigger scheduled" in body and "--max-cost" not in body
+    assert "/dev/null" not in body
+
+
+def test_generated_plist_and_logs_are_gitignored_and_real_plist_not_tracked():
+    import subprocess
+    root = SCHED.parent
+    ignored = subprocess.run(["git", "check-ignore", "scheduler/com.prathikkumar.jobagent.daily.plist",
+                              "data/clean/scheduler.log"], cwd=root, capture_output=True, text=True).stdout.split()
+    assert set(ignored) == {"scheduler/com.prathikkumar.jobagent.daily.plist", "data/clean/scheduler.log"}
+    tracked = subprocess.run(["git", "ls-files", "scheduler"], cwd=root, capture_output=True, text=True).stdout
+    assert "jobagent.daily.plist\n" not in tracked and "jobagent.daily.plist.template" in tracked
+
+
+def test_log_filter_redacts_keys_in_urls():
+    import logging
+    from scout.logsafe import RedactFilter, redact
+    url = "/v1/api/jobs/in/search/1?app_id=ID123&app_key=SECRETKEY&what=product+manager"
+    assert "SECRETKEY" not in redact(url) and "ID123" not in redact(url) and "what=product+manager" in redact(url)
+    rec = logging.LogRecord("x", logging.WARNING, "f", 1, "Retrying after error: %s", (url,), None)
+    RedactFilter().filter(rec)
+    assert "SECRETKEY" not in rec.getMessage() and "app_key=***" in rec.getMessage()

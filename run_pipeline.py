@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 from config import MAX_COST_PER_RUN
 from scout import run_scouts
+from scout.logsafe import configure_logging
 from screener import run_screener
 from screener.cache import atomic_write_json
 from screener.rules import Rules
@@ -119,7 +120,7 @@ def main() -> None:
     p.add_argument("--profile", type=Path, default=Path("profile.yaml"))
     p.add_argument("--data", type=Path, default=Path("data"))
     a = p.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    configure_logging()
     load_dotenv()
     clean = a.data / "clean"
     sys.exit(run(companies=a.companies, profile=a.profile, jobs=a.data / "raw/scout_jobs.json",

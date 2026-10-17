@@ -14,7 +14,11 @@ T = TypeVar("T")
 
 
 class ScreenError(Exception):
-    """Model output was still invalid after the single retry."""
+    """Model output was still invalid after the retries. `raw` keeps the last reply for diagnosis."""
+
+    def __init__(self, message: str, raw: str = ""):
+        super().__init__(message)
+        self.raw = raw
 
 
 @dataclass
@@ -69,18 +73,22 @@ def response_text(resp) -> str:
 
 
 def ask_json(client, model: str, system: str, user: str, validate: Callable[[dict], T],
-             usage: Usage, max_tokens: int) -> T:
-    """Call the model; validate with pydantic. Retry once on invalid output, then raise."""
+             usage: Usage, max_tokens: int, attempts: int = 2) -> T:
+    """Call the model; validate with pydantic. Retry once on invalid output (attempts=2), then raise."""
     last: Exception = ValueError("no attempt")
-    for attempt in (1, 2):
+    raw = ""
+    for attempt in range(1, attempts + 1):
         resp = client.messages.create(
             model=model, max_tokens=max_tokens, system=system,
             messages=[{"role": "user", "content": user}],
         )
         usage.add(model, resp)
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            log.warning("%s reply was cut off at max_tokens=%d (attempt %d)", model, max_tokens, attempt)
         try:
-            return validate(extract_json(response_text(resp)))
+            raw = response_text(resp)
+            return validate(extract_json(raw))
         except ValueError as exc:  # JSONDecodeError and pydantic ValidationError both qualify
             last = exc
             log.warning("invalid JSON from %s (attempt %d): %s", model, attempt, str(exc)[:120])
-    raise ScreenError(str(last)[:200])
+    raise ScreenError(str(last)[:200], raw)

@@ -11,3 +11,6 @@ profile.yaml
 master_profile.json
 data/
 output/
+
+# Generated launchd plist (holds this machine's absolute paths)
+scheduler/*.plist

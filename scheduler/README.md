@@ -1,19 +1,20 @@
 # Daily run (macOS launchd)
 
 Runs `run_pipeline.py` (scout, then screen) every day at 8:30 AM Mac-local time (IST here) with the
-cost cap from `MAX_COST_PER_RUN` in `config.py`. Results go to `data/clean/run_stats.jsonl` only.
+cost cap from `MAX_COST_PER_RUN` in `config.py`. The run summary goes to `data/clean/run_stats.jsonl`; stdout and stderr go to `data/clean/scheduler.log` (gitignored).
 Nothing is sent to Telegram, email or anywhere else.
 
-Install (copy, then load):
+Install (generates the plist from the template with your home path, copies it to
+`~/Library/LaunchAgents` and loads it):
 
-    cp scheduler/com.prathikkumar.jobagent.daily.plist ~/Library/LaunchAgents/
-    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.prathikkumar.jobagent.daily.plist
+    scheduler/install.sh
 
-Turn off (stops the schedule; keeps the file so you can turn it back on):
+Turn off and remove (stops the schedule and deletes the installed and generated plists):
 
-    launchctl bootout gui/$(id -u)/com.prathikkumar.jobagent.daily
+    scheduler/install.sh uninstall
 
-Remove completely: run the turn-off command, then `rm ~/Library/LaunchAgents/com.prathikkumar.jobagent.daily.plist`.
+Pause without removing: `launchctl bootout gui/$(id -u)/com.prathikkumar.jobagent.daily`
+(turn back on by running `scheduler/install.sh` again).
 
 Test now without waiting: `launchctl kickstart gui/$(id -u)/com.prathikkumar.jobagent.daily`.
 

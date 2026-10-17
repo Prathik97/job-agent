@@ -310,3 +310,15 @@ def test_jsearch_parses_search_v2_shape_and_uses_v2_endpoint():
     v2 = {"status": "OK", "data": {"jobs": JSEARCH_RAW["data"], "cursor": "x"}}
     assert [j.title for j in jsearch.parse(v2)] == ["Senior Product Manager", "Remote PM"]
     assert jsearch.URL.endswith("/search-v2")  # /search returns 404 "Endpoint does not exist"
+
+
+def test_last_call_of_the_month_is_used_but_never_exceeded(monkeypatch, tmp_path):
+    monkeypatch.setenv("RAPIDAPI_KEY", "k")
+    monkeypatch.setattr(jsearch, "LIMITS", {"month": 100})
+    t = UsageTracker(tmp_path / "u.json")
+    t.data["jsearch"] = {"month": date.today().strftime("%Y-%m"), "month_calls": 99,
+                         "day": date.today().isoformat(), "day_calls": 0}
+    session = FakeSession([(200, JSEARCH_RAW), (200, JSEARCH_RAW)])
+    jsearch.scout(Q, t, session)                       # two queries wanted, one call left
+    assert len(session.calls) == 1 and t.month_calls("jsearch") == 100
+    assert jsearch.scout(Q, t, FakeSession([(200, JSEARCH_RAW)])) == []   # nothing beyond the quota
