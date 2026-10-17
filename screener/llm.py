@@ -59,6 +59,14 @@ def extract_json(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
+def response_text(resp) -> str:
+    """Text of the first text block. Newer models may lead with a thinking block."""
+    for block in resp.content:
+        if getattr(block, "type", "text") == "text" and getattr(block, "text", None) is not None:
+            return block.text
+    raise ValueError("response has no text block")
+
+
 def ask_json(client, model: str, system: str, user: str, validate: Callable[[dict], T],
              usage: Usage, max_tokens: int) -> T:
     """Call the model; validate with pydantic. Retry once on invalid output, then raise."""
@@ -70,7 +78,7 @@ def ask_json(client, model: str, system: str, user: str, validate: Callable[[dic
         )
         usage.add(model, resp)
         try:
-            return validate(extract_json(resp.content[0].text))
+            return validate(extract_json(response_text(resp)))
         except ValueError as exc:  # JSONDecodeError and pydantic ValidationError both qualify
             last = exc
             log.warning("invalid JSON from %s (attempt %d): %s", model, attempt, str(exc)[:120])

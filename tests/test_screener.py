@@ -577,3 +577,13 @@ def test_physical_ops_job_capped_end_to_end(env):
     go(env, FakeClient([json.dumps(ops)]), limit=1)
     row = json.loads(env.out.read_text())[0]["screen"]["stage2"]
     assert row["verdict"] == "stretch" and row["role_family"] == "physical_ops"
+
+
+def test_response_text_skips_leading_thinking_block():
+    from types import SimpleNamespace as NS
+    from screener.llm import response_text
+    resp = NS(content=[NS(type="thinking", thinking="hmm"), NS(type="text", text='{"a": 1}')])
+    assert response_text(resp) == '{"a": 1}'
+    import pytest
+    with pytest.raises(ValueError):
+        response_text(NS(content=[NS(type="thinking", thinking="x")]))

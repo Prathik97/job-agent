@@ -304,3 +304,9 @@ def test_alias_jobs_merge_but_other_cities_do_not():
                               make("jsearch", location="Gurugram, Haryana, India")])) == 1
     assert len(merge_sources([make("greenhouse", location="Gurgaon"),
                               make("jsearch", location="Bengaluru, India")])) == 2
+
+
+def test_jsearch_parses_search_v2_shape_and_uses_v2_endpoint():
+    v2 = {"status": "OK", "data": {"jobs": JSEARCH_RAW["data"], "cursor": "x"}}
+    assert [j.title for j in jsearch.parse(v2)] == ["Senior Product Manager", "Remote PM"]
+    assert jsearch.URL.endswith("/search-v2")  # /search returns 404 "Endpoint does not exist"

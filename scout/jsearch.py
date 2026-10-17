@@ -16,7 +16,7 @@ from scout.usage import UsageTracker
 
 log = logging.getLogger(__name__)
 SOURCE = "jsearch"
-URL = "https://jsearch.p.rapidapi.com/search"
+URL = "https://jsearch.p.rapidapi.com/search-v2"   # /search now answers 404 "Endpoint does not exist"
 HOST = "jsearch.p.rapidapi.com"
 LIMITS = {"month": JSEARCH_MONTHLY_CALLS}
 
@@ -32,7 +32,9 @@ def to_params(q: Query) -> dict:
 
 def parse(raw: dict) -> List[Job]:
     jobs = []
-    for item in raw.get("data") or []:
+    data = raw.get("data") or []
+    items = data.get("jobs", []) if isinstance(data, dict) else data   # search-v2 nests jobs under data
+    for item in items:
         try:
             parts = [item.get("job_city"), item.get("job_state"), item.get("job_country")]
             location = ", ".join(p for p in parts if p)
