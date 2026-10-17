@@ -600,4 +600,29 @@ def test_truncated_reply_is_reported_and_keeps_raw_for_diagnosis(caplog):
     with pytest.raises(ScreenError) as err:
         ask_json(C, "m", "s", "u", lambda d: d, Usage(), 700, attempts=3)
     assert err.value.raw == cut
-    assert caplog.text.count("cut off at max_tokens") == 3 and caplog.text.count("invalid JSON") == 3
+    assert caplog.text.count("reply was cut off at max_tokens=700") == 3 and caplog.text.count("invalid JSON") == 3
+
+
+def test_cut_off_reply_is_rejected_even_if_a_prefix_would_validate():
+    from types import SimpleNamespace as NS
+    from screener.llm import ScreenError, Usage, ask_json
+    complete_looking = GOOD_S2   # a fully valid object, but the model reported it hit max_tokens
+    calls = []
+
+    def create(**kw):
+        calls.append(1)
+        return NS(content=[NS(type="text", text=complete_looking)], stop_reason="max_tokens",
+                  usage=NS(input_tokens=1, output_tokens=1200))
+    with pytest.raises(ScreenError):
+        ask_json(NS(messages=NS(create=create)), "m", "s", "u", lambda d: d, Usage(), 1200)
+    assert len(calls) == 2    # one retry, then give up (rule 7)
+
+
+def test_stage2_reply_missing_reasons_or_red_flags_does_not_validate():
+    from pydantic import ValidationError
+    from screener.models import Stage2Raw
+    base = {"role_family": "product", "scores": {"role_and_title_fit": 20}}
+    for partial in (base, {**base, "reasons": ["x"]}, {**base, "red_flags": []}):
+        with pytest.raises(ValidationError):
+            Stage2Raw.model_validate(partial)
+    assert Stage2Raw.model_validate({**base, "reasons": ["x"], "red_flags": []}).red_flags == []

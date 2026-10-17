@@ -83,10 +83,13 @@ def ask_json(client, model: str, system: str, user: str, validate: Callable[[dic
             messages=[{"role": "user", "content": user}],
         )
         usage.add(model, resp)
-        if getattr(resp, "stop_reason", None) == "max_tokens":
+        cut_off = getattr(resp, "stop_reason", None) == "max_tokens"
+        if cut_off:
             log.warning("%s reply was cut off at max_tokens=%d (attempt %d)", model, max_tokens, attempt)
         try:
             raw = response_text(resp)
+            if cut_off:   # never trust a reply the model did not finish, even if a prefix parses
+                raise ValueError("reply was cut off at max_tokens")
             return validate(extract_json(raw))
         except ValueError as exc:  # JSONDecodeError and pydantic ValidationError both qualify
             last = exc

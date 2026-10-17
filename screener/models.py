@@ -38,8 +38,8 @@ class Stage2Raw(BaseModel):
     """What the model returns. The final score is computed in code, not trusted."""
     role_family: RoleFamily
     scores: Dict[str, float]
-    reasons: List[str] = Field(default_factory=list)
-    red_flags: List[str] = Field(default_factory=list)
+    reasons: List[str]      # required: a reply missing these is incomplete, not "no reasons"
+    red_flags: List[str]
 
 
 class Stage2Result(BaseModel):
