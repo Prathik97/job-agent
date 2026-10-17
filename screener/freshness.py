@@ -37,14 +37,14 @@ def hours_old_at_first_seen(posted_date: Optional[str], first_seen_at: Optional[
     """Whole hours between the posting and the agent first seeing it. A date-only posted_date
     counts as midnight UTC. None if either side is unknown; a first sighting before the posting
     (clock skew, timezone) counts as 0."""
-    seen = _parse_moment(first_seen_at)
-    posted = _parse_moment(posted_date)
+    seen = parse_moment(first_seen_at)
+    posted = parse_moment(posted_date)
     if seen is None or posted is None:
         return None
     return max(0, int((seen - posted).total_seconds() // 3600))
 
 
-def _parse_moment(value: Optional[str]) -> Optional[datetime]:
+def parse_moment(value: Optional[str]) -> Optional[datetime]:
     if not value or not isinstance(value, str):
         return None
     try:

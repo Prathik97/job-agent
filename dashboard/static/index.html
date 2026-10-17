@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="dashboard-token" content="__TOKEN__">
+<meta name="dashboard-since" content="__SINCE__">
 <title>Job Agent</title>
 <link rel="stylesheet" href="/app.css">
 </head>
@@ -12,6 +13,8 @@
   <h1>Job Agent</h1>
   <span id="demo-badge" hidden>DEMO DATA</span>
   <span id="banner" role="status"></span>
+  <button id="run-pipeline" class="btn" type="button">Run pipeline now</button>
+  <span id="run-status" role="status"></span>
 </header>
 <section id="strip" aria-label="Summary"></section>
 <nav id="tabs" role="tablist">

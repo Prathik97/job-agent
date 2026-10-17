@@ -234,7 +234,7 @@ def test_no_external_resources_in_frontend():
         assert not re.findall(r"""(?:src|href)=["']https?://|@import|url\(https?:""", text)
         assert "XMLHttpRequest" not in text and "WebSocket" not in text
     js = (STATIC / "app.js").read_text()
-    allowed = {'"/api/state"', '"/api/eval"', "path", '"/api/tailor/run"',
+    allowed = {'"/api/state"', '"/api/eval"', "path", '"/api/tailor/run"', '"/api/pipeline/status"',
                '"/files/" + encodeURIComponent(folder'}
     assert set(re.findall(r'fetch\(([^,)]+)', js)) <= allowed
     assert all(p in ('"/api/applications/" + encodeURIComponent(job.id)', '"/api/labels/" + encodeURIComponent(id)')

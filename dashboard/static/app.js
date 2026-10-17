@@ -16,6 +16,7 @@ const ui = {
   sample: { on: false, ids: [] },
   showAllStretch: false,
   showFlagged: false,
+  onlyNew: false,
   // Score a JD: held in memory only (never in localStorage), so a pasted JD does not outlive the page.
   jd: { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null, status: "" },
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
@@ -116,6 +117,7 @@ function recount() {
   const rows = data.jobs, c = data.counts;
   const n = (...s) => rows.filter(r => s.includes(r.status)).length;
   c.ready = rows.filter(r => isReady(r, false, false)).length;
+  c.new_ready = rows.filter(r => r.is_new && isReady(r, false, false)).length;
   c.applied = n("applied"); c.interview = n("interview"); c.rejected = n("rejected"); c.skipped = n("skipped");
   renderStrip();
 }
@@ -126,7 +128,7 @@ function renderStrip() {
     el("div", { class: "n", text: n }), el("div", { class: "l", text: l }));
   const when = c.last_run ? new Date(c.last_run).toLocaleString() : "never";
   document.getElementById("strip").replaceChildren(
-    stat(c.ready, "Ready to apply"), stat(c.applied, "Applied"), stat(c.interview, "Interviewing"),
+    stat(c.ready, "Ready to apply"), stat(c.new_ready, "New since last visit"), stat(c.applied, "Applied"), stat(c.interview, "Interviewing"),
     stat(c.rejected, "Rejected"), stat(c.skipped, "Skipped"), stat(c.total_scored, "Total scored"),
     stat(when, "Last run", true), stat("$" + c.month_cost.toFixed(2), "API cost this month", true));
 }
@@ -158,6 +160,7 @@ function buildTable(key, cols, rows, onSort) {
 
 // ---- column pieces ----
 const text = (key, label, extra) => ({ key, label, value: r => r[key] || "", ...extra });
+const titleWithNew = r => [r.title || "", ...(r.is_new ? [el("span", { class: "chip new", text: "New" })] : [])];
 const verdictChip = r => el("span", { class: "chip " + r.verdict, text: r.verdict || "" });
 const notesCell = r => r.notes.map(n => el("span", { class: "note", text: n }));
 const statusSelect = r => {
@@ -294,7 +297,8 @@ const COLS = {
   resume: { key: "resume_version", label: "Resume version", value: r => r.resume_version || "" },
   myLabel: { key: "my_label", label: "My label", sortable: false, value: r => (data.labels[r.id] || {}).label || "", render: labelCell },
   kept: { key: "kept", label: "Keep?", sortable: false, value: () => "", render: keptCell },
-  company: text("company", "Company"), title: text("title", "Title"), location: text("location", "Location"),
+  company: text("company", "Company"), title: text("title", "Title"),
+  titleNew: { key: "title", label: "Title", value: r => r.title || "", render: titleWithNew }, location: text("location", "Location"),
   source: { key: "source", label: "Source", value: r => r.source || "", render: sourceCell },
   score: { key: "score", label: "Score", num: true, value: r => r.score, render: scoreCell },
   verdict: { key: "verdict", label: "Verdict", value: r => r.verdict, render: verdictChip },
@@ -321,8 +325,8 @@ function holder() { return el("div", { id: "holder" }); }
 function swapHolder(node) { document.getElementById("holder").replaceChildren(node); }
 
 function renderReady() {
-  const rows = () => data.jobs.filter(r => isReady(r, ui.showAllStretch, ui.showFlagged));
-  const cols = [COLS.company, COLS.title, COLS.location, COLS.source, COLS.score, COLS.verdict, COLS.notes,
+  const rows = () => data.jobs.filter(r => isReady(r, ui.showAllStretch, ui.showFlagged) && (!ui.onlyNew || r.is_new));
+  const cols = [COLS.company, COLS.titleNew, COLS.location, COLS.source, COLS.score, COLS.verdict, COLS.notes,
     COLS.posted, COLS.open, COLS.prepare, COLS.status, COLS.mark];
   const toggle = el("label", { class: "toggle" },
     el("input", { type: "checkbox", checked: ui.showAllStretch, onchange: ev => { ui.showAllStretch = ev.target.checked; refresh(); } }),
@@ -330,7 +334,10 @@ function renderReady() {
   const flagged = el("label", { class: "toggle" },
     el("input", { type: "checkbox", checked: ui.showFlagged, onchange: ev => { ui.showFlagged = ev.target.checked; refresh(); } }),
     " Show stale or unverified");
-  return { toolbar: [toggle, flagged, el("span", { class: "count", id: "count" })],
+  const onlyNew = el("label", { class: "toggle" },
+    el("input", { type: "checkbox", checked: ui.onlyNew, onchange: ev => { ui.onlyNew = ev.target.checked; refresh(); } }),
+    " Show only new");
+  return { toolbar: [toggle, flagged, onlyNew, el("span", { class: "count", id: "count" })],
     draw() { const r = rows(); document.getElementById("count").textContent = r.length + " jobs";
       swapHolder(buildTable("ready", cols, r, refresh)); } };
 }
@@ -681,6 +688,37 @@ function showTab(name) {
   current.draw();
 }
 function refresh() { if (current) current.draw(); }
+
+// ---- Run pipeline now: estimate first, confirm, run in the background, poll until done ----
+const runBtn = document.getElementById("run-pipeline");
+const runStatus = document.getElementById("run-status");
+async function pipelinePost(path) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN },
+    body: "{}" });
+  let json = {};
+  try { json = await res.json(); } catch (e) { /* non-JSON error body */ }
+  return { ok: res.ok, json };
+}
+async function pollPipeline() {
+  const res = await fetch("/api/pipeline/status", { headers: { "X-Dashboard-Token": TOKEN } });
+  const st = await res.json();
+  if (st.state === "running") { setTimeout(pollPipeline, 3000); return; }
+  runBtn.disabled = false;
+  runStatus.textContent = st.state === "done" ? (st.exit_code === 2 ? "Run stopped at the cost cap." : "Run finished.")
+    : "Run failed; see data/clean/run_stats.jsonl.";
+  await loadState(); renderStrip(); refresh();
+}
+runBtn.addEventListener("click", async () => {
+  runBtn.disabled = true; runStatus.textContent = "Estimating...";
+  const est = await pipelinePost("/api/pipeline/estimate");
+  if (!est.ok) { runStatus.textContent = est.json.error || "Could not estimate."; runBtn.disabled = false; return; }
+  const ok = window.confirm("Run scout and screen now?\n\nEstimated screening cost: $" + est.json.est_cost.toFixed(2)
+    + "\nHard cap for this run: $" + est.json.max_cost.toFixed(2) + "\n\n" + est.json.note);
+  if (!ok) { runStatus.textContent = ""; runBtn.disabled = false; return; }
+  const run = await pipelinePost("/api/pipeline/run");
+  if (!run.ok) { runStatus.textContent = run.json.error || "Could not start."; runBtn.disabled = false; return; }
+  runStatus.textContent = "Running scout and screen. This takes a few minutes."; pollPipeline();
+});
 
 document.getElementById("tabs").addEventListener("click", e => {
   const b = e.target.closest("button[data-tab]");

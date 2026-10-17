@@ -21,6 +21,7 @@ class ScreenError(Exception):
 class Usage:
     by_model: Dict[str, list] = field(default_factory=dict)
     calls: Dict[str, int] = field(default_factory=dict)
+    capped: bool = False   # a run stopped early because spend reached its cap
 
     def add(self, model: str, response) -> None:
         self.calls[model] = self.calls.get(model, 0) + 1

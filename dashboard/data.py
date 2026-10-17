@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from config import CAPPED_ROLE_FAMILIES, READY_STRETCH_MIN_SCORE
 from dashboard.store import PIPELINE_STATUSES, ApplicationsStore
-from screener.freshness import hours_old_at_first_seen, posting_age_days
+from screener.freshness import hours_old_at_first_seen, parse_moment, posting_age_days
 
 FOLLOW_UP_DAYS = 7
 READY_STATUSES = ("new", "shortlisted")
@@ -122,7 +122,14 @@ def month_cost(runs: List[dict], today: date) -> float:
                      if str(r.get("timestamp", "")).startswith(prefix) and not r.get("dry_run")), 4)
 
 
-def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] = None) -> dict:
+def is_new(first_seen_at: Optional[str], since: Optional[str]) -> bool:
+    """First seen after the baseline (the previous dashboard visit). No baseline: nothing is new."""
+    seen, base = parse_moment(first_seen_at), parse_moment(since)
+    return seen is not None and base is not None and seen > base
+
+
+def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] = None,
+                since: Optional[str] = None) -> dict:
     today = today or datetime.now(timezone.utc).date()
     clean = data_dir / "clean"
     apps = store.load()
@@ -138,6 +145,7 @@ def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] 
     for row in rows:
         row["follow_up"] = follow_up_due(row, today)
         row["age_days"] = posting_age_days(row.get("posted_date"), today)
+        row["is_new"] = is_new(row.get("first_seen_at"), since)
     runs = read_jsonl(clean / "run_stats.jsonl")
     real_runs = [r for r in runs if not r.get("aborted")]
 
@@ -146,6 +154,7 @@ def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] 
 
     counts = {
         "ready": sum(1 for r in rows if is_ready(r)),
+        "new_ready": sum(1 for r in rows if is_ready(r) and r["is_new"]), "since": since,
         "ready_stretch_min": READY_STRETCH_MIN_SCORE, "capped_families": list(CAPPED_ROLE_FAMILIES),
         "applied": count("applied"), "interview": count("interview"),
         "rejected": count("rejected"), "skipped": count("skipped"),

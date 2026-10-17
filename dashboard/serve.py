@@ -22,7 +22,9 @@ from urllib.parse import unquote, urlsplit
 
 from dashboard.data import build_state, filtered_snapshot_for, snapshot_for
 from dashboard.labels import LabelStore
+from dashboard.pipeline import PipelineService
 from dashboard.prepared import PreparedStore
+from dashboard.seen import SeenStore
 from dashboard.service import ServiceError, list_files
 from dashboard.store import ApplicationsStore, StoreError
 from evaluate.metrics import compute, filtered_totals
@@ -45,12 +47,15 @@ class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, port: int, data_dir: Path, token: Optional[str] = None, demo: bool = False,
-                 output_dir: Optional[Path] = None, service=None, jd_service=None):
+                 output_dir: Optional[Path] = None, service=None, jd_service=None,
+                 pipeline_service=None):
         self.data_dir = data_dir
         self.demo = demo
         self.output_dir = (output_dir or Path("output/resumes")).resolve()
         self.service = service
         self.jd_service = jd_service
+        self.pipeline_service = pipeline_service
+        self.seen = SeenStore(data_dir / "clean" / "dashboard_seen.json")
         self.jd_lock = threading.Lock()       # one JD scoring run at a time: each one spends API credit
         self.tailor_lock = threading.Lock()   # one tailor run at a time: each one spends API credit
         self.prepared = PreparedStore(data_dir / "clean" / "prepared.json")
@@ -120,7 +125,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path == "/":
+            since = self.server.seen.open_visit() if not self.server.demo else None
             html = (STATIC / "index.html").read_text().replace("__TOKEN__", self.server.token)
+            html = html.replace("__SINCE__", since or "")
             self._send(200, html.encode(), "text/html; charset=utf-8")
         elif path in STATIC_FILES:
             name, ctype = STATIC_FILES[path]
@@ -129,8 +136,11 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file(path)
         elif path == "/api/eval":
             self._json(200, self._eval())
+        elif path == "/api/pipeline/status":
+            svc = self.server.pipeline_service
+            self._json(200, svc.status() if svc else {"state": "unavailable"})
         elif path == "/api/state":
-            self._json(200, {**build_state(self.server.data_dir, self.server.store),
+            self._json(200, {**build_state(self.server.data_dir, self.server.store, since=self.server.seen.since()),
                              "demo": self.server.demo, "labels": self.server.labels.load(),
                              "eval": self._eval(), "prepared": self._prepared()})
         else:
@@ -215,8 +225,10 @@ class Handler(BaseHTTPRequestHandler):
         tailor_actions = {"/api/tailor/estimate": "estimate", "/api/tailor/run": "run"}
         jd_actions = {"/api/jd/estimate": "estimate", "/api/jd/score": "score", "/api/jd/add": "add",
                       "/api/jd/tailor/estimate": "tailor_estimate", "/api/jd/tailor/run": "tailor_run"}
+        pipeline_actions = {"/api/pipeline/estimate": "estimate", "/api/pipeline/run": "start"}
         prefix = "/api/labels/" if path.startswith("/api/labels/") else "/api/applications/"
-        if path not in tailor_actions and path not in jd_actions and not path.startswith(prefix):
+        if (path not in tailor_actions and path not in jd_actions and path not in pipeline_actions
+                and not path.startswith(prefix)):
             return self._json(404, {"error": "not found"})
         body = self._read_body()
         if body is None:
@@ -226,6 +238,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._tailor(tailor_actions[path], body)
             elif path in jd_actions:
                 self._jd(jd_actions[path], body)
+            elif path in pipeline_actions:
+                svc = self.server.pipeline_service
+                if svc is None:
+                    return self._json(400, {"error": "running the pipeline is not available"})
+                self._json(200, getattr(svc, pipeline_actions[path])(body))
             else:
                 (self._label if prefix == "/api/labels/" else self._apply)(path[len(prefix):], body)
         except StoreError as exc:
@@ -278,8 +295,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port: int, data_dir: Path, token: Optional[str] = None, demo: bool = False,
-                output_dir: Optional[Path] = None, service=None, jd_service=None) -> DashboardServer:
-    return DashboardServer(port, data_dir, token, demo, output_dir, service, jd_service)
+                output_dir: Optional[Path] = None, service=None, jd_service=None,
+                pipeline_service=None) -> DashboardServer:
+    return DashboardServer(port, data_dir, token, demo, output_dir, service, jd_service, pipeline_service)
 
 
 def main() -> None:
@@ -307,7 +325,10 @@ def main() -> None:
         service = TailorService(data_dir, out_dir, Path("master_profile.json"), Path("profile.yaml"))
         from dashboard.jd import JDScorer
         jd_service = JDScorer(data_dir, out_dir, Path("master_profile.json"), Path("profile.yaml"))
-    server = make_server(a.port, data_dir, demo=a.demo, output_dir=out_dir, service=service, jd_service=jd_service)
+    from dashboard.pipeline import DemoPipelineService
+    pipeline_service = (DemoPipelineService if a.demo else PipelineService)(data_dir)
+    server = make_server(a.port, data_dir, demo=a.demo, output_dir=out_dir, service=service,
+                         jd_service=jd_service, pipeline_service=pipeline_service)
     log.info("Dashboard at http://127.0.0.1:%d  (Ctrl+C to stop)", server.port)
     try:
         server.serve_forever()

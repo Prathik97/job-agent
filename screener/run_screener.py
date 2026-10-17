@@ -139,9 +139,16 @@ def _cached_or_call(cache: Cache, key: str, retry_failed: bool, call) -> Optiona
 
 
 def screen(candidates: List[Candidate], cache: Cache, ctx: stage2.ScoringContext, client,
-           retry_failed: bool, usage: Usage) -> Dict[str, dict]:
+           retry_failed: bool, usage: Usage, max_cost: Optional[float] = None) -> Dict[str, dict]:
+    """Score candidates. With max_cost, stop cleanly once actual spend reaches it (the estimate
+    can undershoot); jobs not reached are simply picked up by the next run."""
     out: Dict[str, dict] = {}
     for job, rule in candidates:
+        if max_cost is not None and usage.cost() >= max_cost:
+            usage.capped = True
+            log.warning("spend reached the $%.2f cap; stopping with %d of %d jobs screened",
+                        max_cost, len(out), len(candidates))
+            break
         s1_entry = None
         if rule.status == "stage1":
             s1_entry = _cached_or_call(cache, key1(job), retry_failed,
@@ -199,9 +206,10 @@ def run(jobs_path: Path, out_path: Path, profile_path: Path, cache_path: Path, *
             f"estimated cost ${funnel['est_cost_total']:.2f} is above the limit ${max_cost:.2f}; "
             "no API call was made. Raise it with --max-cost or lower the load with --limit.")
     usage = Usage()
-    results = screen(candidates, cache, ctx, client or make_client(), retry_failed, usage)
+    results = screen(candidates, cache, ctx, client or make_client(), retry_failed, usage, max_cost)
     total = merge_output(out_path, results)
     funnel["actual_cost"] = usage.cost()
+    funnel["stopped_at_cost_cap"] = usage.capped
     funnel["actual_stage1_calls"] = usage.calls.get(HAIKU, 0)
     funnel["actual_stage2_calls"] = usage.calls.get(SONNET, 0)
     funnel["scored"] = sum(1 for r in results.values() if r["screen"]["status"] == "scored")

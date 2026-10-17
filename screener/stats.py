@@ -68,6 +68,7 @@ def build_stats_line(layers: dict, funnel: dict, *, dry_run: bool, aborted: bool
         "cost_usd": round(funnel.get("actual_cost", 0.0), 4),
         "est_cost_usd": round(funnel.get("est_cost_total", 0.0), 4),
         "verdicts": layers["verdicts"],
+        "stopped_at_cost_cap": bool(funnel.get("stopped_at_cost_cap")),
     }
 
 

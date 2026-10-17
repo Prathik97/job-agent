@@ -11,6 +11,7 @@ import argparse
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -42,10 +43,36 @@ def log_source_funnel(layers: dict) -> None:
     log.info("  verdicts: %s", ", ".join(f"{k} {v}" for k, v in layers["verdicts"].items()))
 
 
+def record_failure(clean_dir: Path, exc: Exception, trigger: str) -> None:
+    """A crashed run leaves one line in run_stats.jsonl (error type only, never keys or text)."""
+    clean_dir.mkdir(parents=True, exist_ok=True)
+    line = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"), "dry_run": False,
+            "aborted": False, "failed": True, "error": type(exc).__name__, "trigger": trigger}
+    with (clean_dir / "run_stats.jsonl").open("a") as fh:
+        fh.write(json.dumps(line) + "\n")
+
+
 def run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: Path,
         clean_dir: Path, usage: Path, dry_run: bool = False, skip_scout: bool = False,
-        limit: Optional[int] = None, max_cost: float = MAX_COST_PER_RUN, client=None) -> int:
-    """Returns a process exit code: 0 ok, 2 aborted by the spend guard."""
+        limit: Optional[int] = None, max_cost: float = MAX_COST_PER_RUN, client=None,
+        trigger: str = "cli") -> int:
+    """Returns a process exit code: 0 ok, 1 failed, 2 stopped by the cost cap. A failed run
+    writes nothing over existing results: scout and screener output files are only replaced
+    atomically at the end of their own step, and the failure is logged to run_stats.jsonl."""
+    try:
+        return _run(companies=companies, profile=profile, jobs=jobs, screened=screened, cache=cache,
+                    clean_dir=clean_dir, usage=usage, dry_run=dry_run, skip_scout=skip_scout,
+                    limit=limit, max_cost=max_cost, client=client, trigger=trigger)
+    except Exception as exc:  # noqa: BLE001 - any crash must be recorded, not lost
+        log.error("pipeline failed: %s", type(exc).__name__)
+        if not dry_run:
+            record_failure(clean_dir, exc, trigger)
+        return 1
+
+
+def _run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: Path,
+         clean_dir: Path, usage: Path, dry_run: bool, skip_scout: bool,
+         limit: Optional[int], max_cost: float, client, trigger: str) -> int:
     if not (dry_run or skip_scout):
         run_scouts.run(companies, jobs, profile, usage_path=usage)
     elif not jobs.exists():
@@ -69,9 +96,11 @@ def run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: Pa
         log.info("dry run: estimated cost $%.3f, nothing written", funnel["est_cost_total"])
         return 0
     atomic_write_json(clean_dir / "filtered_out.json", build_filtered_out(all_jobs, rules, rows))
-    stats = build_stats_line(layers, funnel, dry_run=False, aborted=aborted)
+    stats = {**build_stats_line(layers, funnel, dry_run=False, aborted=aborted), "trigger": trigger}
     with (clean_dir / "run_stats.jsonl").open("a") as fh:
         fh.write(json.dumps(stats) + "\n")
+    if funnel.get("stopped_at_cost_cap"):
+        log.warning("stopped at the cost cap; the remaining jobs are screened next run")
     if not aborted:
         log.info("cost this run: $%.3f (%d stage 1 calls, %d stage 2 calls)", stats["cost_usd"],
                  stats["stage1_calls"], stats["stage2_calls"])
@@ -85,6 +114,7 @@ def main() -> None:
     p.add_argument("--limit", type=int, help="screen at most N jobs that survive the rules")
     p.add_argument("--max-cost", type=float, default=MAX_COST_PER_RUN,
                    help="abort if the estimated cost is above this (USD)")
+    p.add_argument("--trigger", default="cli", help="who started this run (cli, scheduled, dashboard)")
     p.add_argument("--companies", type=Path, default=Path("companies.yaml"))
     p.add_argument("--profile", type=Path, default=Path("profile.yaml"))
     p.add_argument("--data", type=Path, default=Path("data"))
@@ -95,7 +125,7 @@ def main() -> None:
     sys.exit(run(companies=a.companies, profile=a.profile, jobs=a.data / "raw/scout_jobs.json",
                  screened=clean / "screened_jobs.json", cache=clean / "screener_cache.json",
                  clean_dir=clean, usage=a.data / "raw/api_usage.json", dry_run=a.dry_run,
-                 skip_scout=a.skip_scout, limit=a.limit, max_cost=a.max_cost))
+                 skip_scout=a.skip_scout, limit=a.limit, max_cost=a.max_cost, trigger=a.trigger))
 
 
 if __name__ == "__main__":

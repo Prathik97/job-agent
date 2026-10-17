@@ -89,3 +89,7 @@ button:disabled, select:disabled, input:disabled { opacity: .5; cursor: not-allo
 ul.plain { margin: 0; padding-left: 18px; }
 ul.plain li { margin: 4px 0; }
 .chip.backed { color: var(--good); } .chip.notbacked { color: var(--warn); }
+
+.chip.new { background: var(--accent); color: #fff; font-weight: 600; margin-left: 6px; }
+#run-status { color: var(--muted); font-size: 13px; }
+header #run-pipeline { margin-left: auto; }
