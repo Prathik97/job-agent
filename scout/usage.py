@@ -7,14 +7,22 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
+
+from config import TIMEZONE
 
 from screener.cache import atomic_write_json
 
 log = logging.getLogger(__name__)
 USAGE_PATH = Path("data/raw/api_usage.json")
+
+
+def today_local(now: Optional[datetime] = None) -> date:
+    """Today's date in TIMEZONE (IST). Budgets reset on this calendar, not the machine's or UTC's."""
+    return (now.astimezone(ZoneInfo(TIMEZONE)) if now else datetime.now(ZoneInfo(TIMEZONE))).date()
 
 
 class UsageTracker:
@@ -23,7 +31,7 @@ class UsageTracker:
         """limits: {api: {"month": n, "day": n (optional)}}."""
         self.path = path
         self.limits = limits or {}
-        self.today = today or date.today()
+        self.today = today or today_local()
         self.data: Dict[str, dict] = {}
         if path.exists():
             try:
@@ -47,6 +55,11 @@ class UsageTracker:
         if "month" in lim and e["month_calls"] >= lim["month"]:
             return False
         return not ("day" in lim and e["day_calls"] >= lim["day"])
+
+    def month_left(self, api: str) -> Optional[int]:
+        """Calls left this calendar month, or None if no monthly limit is set."""
+        lim = self.limits.get(api, {})
+        return max(0, lim["month"] - self._entry(api)["month_calls"]) if "month" in lim else None
 
     def remaining(self, api: str) -> int:
         e, lim = self._entry(api), self.limits.get(api, {})

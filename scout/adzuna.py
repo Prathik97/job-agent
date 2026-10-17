@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import requests
 
-from config import ADZUNA_DAILY_CALLS, ADZUNA_MAX_CALLS_PER_RUN, ADZUNA_MONTHLY_CALLS
+from config import ADZUNA_MAX_CALLS_PER_RUN, ADZUNA_MIN_SECONDS_BETWEEN_CALLS, ADZUNA_MONTHLY_CALLS
 from scout.aggregator import api_get, run_queries
 from scout.http import html_to_text, infer_remote_type, make_session
 from scout.queries import Query
@@ -17,7 +17,7 @@ from scout.usage import UsageTracker
 log = logging.getLogger(__name__)
 SOURCE = "adzuna"
 URL = "https://api.adzuna.com/v1/api/jobs/in/search/1"
-LIMITS = {"month": ADZUNA_MONTHLY_CALLS, "day": ADZUNA_DAILY_CALLS}
+LIMITS = {"month": ADZUNA_MONTHLY_CALLS}
 
 
 def credentials() -> Optional[dict]:
@@ -59,4 +59,5 @@ def scout(queries: List[Query], tracker: UsageTracker,
     session = session or make_session(retry_statuses=(500, 502, 503, 504))
     tracker.limits[SOURCE] = LIMITS
     return run_queries(SOURCE, queries, ADZUNA_MAX_CALLS_PER_RUN, tracker,
-                       lambda q: parse(api_get(session, SOURCE, URL, to_params(q, creds))))
+                       lambda q: parse(api_get(session, SOURCE, URL, to_params(q, creds))),
+                       min_interval=ADZUNA_MIN_SECONDS_BETWEEN_CALLS)

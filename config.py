@@ -24,18 +24,22 @@ HEAD_FRACTION = 0.7
 ASSUMED_STAGE1_KEEP_RATE = 0.5
 
 # ---------------------------------------------------------------
-# Aggregator API budgets. PROVISIONAL: these are working guesses, NOT your real plan limits.
-# TODO: replace them with the limits shown in the Adzuna developer dashboard and the RapidAPI
-# dashboard for JSearch. A 429 or 402 from an API stops only that API for the rest of the run.
+# Aggregator API budgets, set below the real plan limits so manual runs keep some spare.
+# A 429 or 402 from an API stops only that API for the rest of the run. Counters reset by
+# calendar month in TIMEZONE.
 # ---------------------------------------------------------------
-ADZUNA_DAILY_CALLS = 25          # PROVISIONAL - replace with your real Adzuna daily limit
-ADZUNA_MONTHLY_CALLS = 300       # PROVISIONAL - replace with your real Adzuna monthly limit
-JSEARCH_DAILY_CALLS = 4          # PROVISIONAL - replace with your real JSearch daily limit
-JSEARCH_MONTHLY_CALLS = 120      # PROVISIONAL - replace with your real JSearch monthly limit
+TIMEZONE = "Asia/Kolkata"        # IST: the day and month boundaries for budgets and the Monday rule
 
-# Per-run caps so one run cannot burn the month. Queries rotate across runs (see scout/queries.py).
-JSEARCH_MAX_CALLS_PER_RUN = 4
-ADZUNA_MAX_CALLS_PER_RUN = 10
+# JSearch (RapidAPI Basic plan). Plan limit: 200 requests per month (hard), rate limit 1000 per hour.
+JSEARCH_DAILY_CALLS = 5          # budget, not a plan limit
+JSEARCH_MONTHLY_CALLS = 180      # plan: 200 per month hard; 20 kept spare for manual runs
+JSEARCH_MAX_CALLS_PER_RUN = 4    # queries rotate across runs (see scout/queries.py)
+
+# Adzuna (test plan). Plan limit: 25 hits per month, 25 per day, 5 per minute.
+ADZUNA_MONTHLY_CALLS = 20        # plan: 25 per month; 5 kept spare
+ADZUNA_MAX_CALLS_PER_RUN = 5     # per run, so one run cannot burn the month
+ADZUNA_MIN_SECONDS_BETWEEN_CALLS = 12   # plan: 5 per minute, so at least 12 s apart
+ADZUNA_SCHEDULED_WEEKDAY = 0     # the scheduled daily run uses Adzuna on Mondays only (0 = Monday, IST)
 
 # Firecrawl (last-resort scraping): 1 credit per page. Hard cap per run, cache lifetime in hours.
 FIRECRAWL_MAX_CREDITS_PER_RUN = 40

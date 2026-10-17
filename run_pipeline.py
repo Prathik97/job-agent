@@ -75,7 +75,7 @@ def _run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: P
          clean_dir: Path, usage: Path, dry_run: bool, skip_scout: bool,
          limit: Optional[int], max_cost: float, client, trigger: str) -> int:
     if not (dry_run or skip_scout):
-        run_scouts.run(companies, jobs, profile, usage_path=usage)
+        run_scouts.run(companies, jobs, profile, usage_path=usage, adzuna_weekly_only=(trigger == "scheduled"))
     elif not jobs.exists():
         log.error("no scout output at %s; run without --dry-run / --skip-scout first", jobs)
         return 1

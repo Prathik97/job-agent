@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -15,13 +16,14 @@ import requests
 import yaml
 from dotenv import load_dotenv
 
+from config import ADZUNA_SCHEDULED_WEEKDAY
 from scout import adzuna, ashby, greenhouse, jsearch, lever, smartrecruiters, workday
 from scout.http import cache_changed, make_session
 from scout.logsafe import configure_logging
 from scout.normalize import AGGREGATOR_SOURCES, merge_sources
 from scout.queries import build_queries
 from scout.schema import Job
-from scout.usage import USAGE_PATH, UsageTracker
+from scout.usage import USAGE_PATH, UsageTracker, today_local
 from screener.cache import atomic_write_json
 
 log = logging.getLogger(__name__)
@@ -63,7 +65,14 @@ def load_previous(out_path: Path) -> List[Job]:
         return []
 
 
-def run_aggregators(profile_path: Optional[Path], tracker: UsageTracker) -> List[Job]:
+def adzuna_due(weekly_only: bool, today: Optional[date] = None) -> bool:
+    """The scheduled run uses Adzuna on ADZUNA_SCHEDULED_WEEKDAY (Monday, IST) only; any other
+    caller (command line, dashboard button) may use it whenever the monthly budget allows."""
+    return not weekly_only or (today or today_local()).weekday() == ADZUNA_SCHEDULED_WEEKDAY
+
+
+def run_aggregators(profile_path: Optional[Path], tracker: UsageTracker,
+                    adzuna_weekly_only: bool = False, today: Optional[date] = None) -> List[Job]:
     """Adzuna then JSearch. A missing key, spent budget or quota error skips that API only."""
     if profile_path is None or not profile_path.exists():
         log.warning("no profile at %s; skipping aggregators", profile_path)
@@ -71,12 +80,16 @@ def run_aggregators(profile_path: Optional[Path], tracker: UsageTracker) -> List
     queries = build_queries(yaml.safe_load(profile_path.read_text()))
     jobs: List[Job] = []
     for module in (adzuna, jsearch):
+        if module is adzuna and not adzuna_due(adzuna_weekly_only, today):
+            log.info("Adzuna skipped, weekly schedule")
+            continue
         jobs.extend(module.scout(queries, tracker))
     return jobs
 
 
 def run(companies_path: Path, out_path: Path, profile_path: Optional[Path] = Path("profile.yaml"),
-        usage_path: Path = USAGE_PATH, aggregators: bool = True) -> Dict[str, Job]:
+        usage_path: Path = USAGE_PATH, aggregators: bool = True,
+        adzuna_weekly_only: bool = False) -> Dict[str, Job]:
     session = make_session()
     found: Dict[str, Job] = {}
     failures = 0
@@ -102,7 +115,8 @@ def run(companies_path: Path, out_path: Path, profile_path: Optional[Path] = Pat
     agg = {j.id: j for j in previous if j.source in AGGREGATOR_SOURCES}
     if aggregators:
         agg.update({j.id: j for j in run_aggregators(profile_path, UsageTracker(
-            usage_path, {adzuna.SOURCE: adzuna.LIMITS, jsearch.SOURCE: jsearch.LIMITS}))})
+            usage_path, {adzuna.SOURCE: adzuna.LIMITS, jsearch.SOURCE: jsearch.LIMITS}),
+            adzuna_weekly_only)})
     for job in found.values():  # keep "also listed on" notes found in earlier runs
         old = prev_by_id.get(job.id)
         if old:

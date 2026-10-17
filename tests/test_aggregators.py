@@ -324,25 +324,163 @@ def test_last_call_of_the_month_is_used_but_never_exceeded(monkeypatch, tmp_path
     assert jsearch.scout(Q, t, FakeSession([(200, JSEARCH_RAW)])) == []   # nothing beyond the quota
 
 
-def test_provisional_limits_are_set_and_marked():
+def test_real_plan_budgets_and_comments():
     import config
     from pathlib import Path
-    assert (config.ADZUNA_DAILY_CALLS, config.ADZUNA_MONTHLY_CALLS) == (25, 300)
-    assert (config.JSEARCH_DAILY_CALLS, config.JSEARCH_MONTHLY_CALLS) == (4, 120)
-    assert adzuna.LIMITS == {"month": 300, "day": 25} and jsearch.LIMITS == {"month": 120, "day": 4}
+    assert (config.JSEARCH_DAILY_CALLS, config.JSEARCH_MONTHLY_CALLS, config.JSEARCH_MAX_CALLS_PER_RUN) == (5, 180, 4)
+    assert (config.ADZUNA_MAX_CALLS_PER_RUN, config.ADZUNA_MONTHLY_CALLS) == (5, 20)
+    assert config.ADZUNA_MIN_SECONDS_BETWEEN_CALLS == 12 and config.ADZUNA_SCHEDULED_WEEKDAY == 0
+    assert config.TIMEZONE == "Asia/Kolkata"
+    assert jsearch.LIMITS == {"month": 180, "day": 5} and adzuna.LIMITS == {"month": 20}
     text = Path(config.__file__).read_text()
-    assert text.count("PROVISIONAL") >= 5 and "replace" in text.lower()
+    assert "PROVISIONAL" not in text and "TODO" not in text
+    assert "200 per month" in text and "25 per month" in text and "5 per minute" in text   # real plan limits noted
 
 
 def test_jsearch_daily_limit_stops_before_exceeding(monkeypatch, tmp_path):
     monkeypatch.setenv("RAPIDAPI_KEY", "k")
     t = UsageTracker(tmp_path / "u.json")
-    t.data["jsearch"] = {"month": date.today().strftime("%Y-%m"), "month_calls": 3,
-                         "day": date.today().isoformat(), "day_calls": 3}   # 1 of the 4 daily calls left
+    t.data["jsearch"] = {"month": t.today.strftime("%Y-%m"), "month_calls": 4,
+                         "day": t.today.isoformat(), "day_calls": 4}   # 1 of the 5 daily calls left
     session = FakeSession([(200, JSEARCH_RAW), (200, JSEARCH_RAW)])
     jsearch.scout(Q, t, session)
-    assert len(session.calls) == 1 and t.data["jsearch"]["day_calls"] == 4
+    assert len(session.calls) == 1 and t.data["jsearch"]["day_calls"] == 5
     assert jsearch.scout(Q, t, FakeSession([(200, JSEARCH_RAW)])) == []
+
+
+def test_adzuna_stops_at_20_calls_a_month_not_25(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    t = UsageTracker(tmp_path / "u.json")
+    t.data["adzuna"] = {"month": t.today.strftime("%Y-%m"), "month_calls": 19,
+                        "day": t.today.isoformat(), "day_calls": 0}
+    session = FakeSession([(200, ADZUNA_RAW), (200, ADZUNA_RAW)])
+    adzuna.scout(Q, t, session)
+    assert len(session.calls) == 1 and t.month_calls("adzuna") == 20    # 5 spares of the plan's 25 stay unused
+    assert adzuna.scout(Q, t, FakeSession([(200, ADZUNA_RAW)])) == []
+
+
+def test_adzuna_per_run_cap_is_five(monkeypatch, tmp_path):
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    many = [Query(f"stem{i}", "bengaluru") for i in range(12)]
+    session = FakeSession([(200, ADZUNA_RAW)] * 12)
+    adzuna.scout(many, UsageTracker(tmp_path / "u.json"), session)
+    assert len(session.calls) == 5
+
+
+# ---------- Adzuna weekly schedule ----------
+
+MONDAY, TUESDAY = date(2026, 10, 19), date(2026, 10, 20)
+
+
+@pytest.fixture
+def agg(monkeypatch, tmp_path):
+    from scout import run_scouts
+    called = []
+    monkeypatch.setattr(run_scouts, "build_queries", lambda profile: Q)
+    monkeypatch.setattr(run_scouts.adzuna, "scout", lambda q, t: called.append("adzuna") or [])
+    monkeypatch.setattr(run_scouts.jsearch, "scout", lambda q, t: called.append("jsearch") or [])
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("{}")
+    return run_scouts, profile, called
+
+
+def test_scheduled_run_skips_adzuna_on_non_mondays_and_says_so(agg, tmp_path, caplog):
+    run_scouts, profile, called = agg
+    caplog.set_level("INFO")
+    run_scouts.run_aggregators(profile, UsageTracker(tmp_path / "u.json"), True, TUESDAY)
+    assert called == ["jsearch"] and "Adzuna skipped, weekly schedule" in caplog.text
+
+
+def test_scheduled_run_uses_adzuna_on_monday(agg, tmp_path):
+    run_scouts, profile, called = agg
+    run_scouts.run_aggregators(profile, UsageTracker(tmp_path / "u.json"), True, MONDAY)
+    assert called == ["adzuna", "jsearch"]
+
+
+def test_manual_run_may_use_adzuna_any_day(agg, tmp_path):
+    run_scouts, profile, called = agg
+    run_scouts.run_aggregators(profile, UsageTracker(tmp_path / "u.json"), False, TUESDAY)
+    assert called == ["adzuna", "jsearch"]
+
+
+def test_only_the_scheduled_trigger_restricts_adzuna(monkeypatch, tmp_path):
+    import run_pipeline
+    seen = {}
+
+    def fake_run(*a, **kw):
+        seen["weekly"] = kw["adzuna_weekly_only"]
+        raise RuntimeError("stop here")
+    monkeypatch.setattr(run_pipeline.run_scouts, "run", fake_run)
+    for trigger, expected in (("scheduled", True), ("dashboard", False), ("cli", False)):
+        run_pipeline.run(companies=tmp_path / "c.yaml", profile=tmp_path / "p.yaml", jobs=tmp_path / "j.json",
+                         screened=tmp_path / "s.json", cache=tmp_path / "c.json", clean_dir=tmp_path / "clean",
+                         usage=tmp_path / "u.json", trigger=trigger)
+        assert seen["weekly"] is expected
+
+
+# ---------- pacing ----------
+
+def test_pace_waits_for_the_remaining_interval(monkeypatch):
+    from scout import aggregator
+    now, slept = [100.0], []
+    monkeypatch.setattr(aggregator, "monotonic", lambda: now[0])
+    monkeypatch.setattr(aggregator, "sleep", lambda s: (slept.append(s), now.__setitem__(0, now[0] + s)))
+    aggregator._last_call.clear()
+    aggregator.pace("x", 12)                 # first call: no wait
+    now[0] += 5
+    aggregator.pace("x", 12)                 # 5 s later: wait the other 7 s
+    now[0] += 20
+    aggregator.pace("x", 12)                 # long enough ago: no wait
+    assert slept == [7.0]
+
+
+def test_adzuna_calls_are_at_least_12_seconds_apart(monkeypatch, tmp_path):
+    from scout import aggregator
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    now, slept = [0.0], []
+    monkeypatch.setattr(aggregator, "monotonic", lambda: now[0])
+    monkeypatch.setattr(aggregator, "sleep", lambda s: (slept.append(s), now.__setitem__(0, now[0] + s)))
+    aggregator._last_call.clear()
+    adzuna.scout([Query(f"s{i}", "bengaluru") for i in range(4)], UsageTracker(tmp_path / "u.json"),
+                 FakeSession([(200, ADZUNA_RAW)] * 4))
+    assert slept == [12.0, 12.0, 12.0]       # 4 calls, 3 gaps
+
+
+# ---------- calendar month in IST ----------
+
+def test_budget_month_follows_ist_not_utc():
+    from datetime import datetime, timezone
+    from scout.usage import today_local
+    assert today_local(datetime(2026, 10, 31, 19, 0, tzinfo=timezone.utc)) == date(2026, 11, 1)   # 00:30 IST
+    assert today_local(datetime(2026, 10, 31, 17, 0, tzinfo=timezone.utc)) == date(2026, 10, 31)  # 22:30 IST
+
+
+def test_monthly_counter_resets_on_the_first_of_the_month(tmp_path):
+    path = tmp_path / "u.json"
+    t = UsageTracker(path, {"adzuna": {"month": 20}}, today=date(2026, 10, 31))
+    for _ in range(20):
+        t.record("adzuna")
+    assert not t.allowed("adzuna") and t.month_left("adzuna") == 0
+    t = UsageTracker(path, {"adzuna": {"month": 20}}, today=date(2026, 11, 1))
+    assert t.allowed("adzuna") and t.month_left("adzuna") == 20 and t.month_calls("adzuna") == 0
+
+
+def test_dashboard_shows_calls_left_this_month(tmp_path):
+    import json
+    from pathlib import Path
+    from dashboard.data import api_budget
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "api_usage.json").write_text(json.dumps({
+        "jsearch": {"month": "2026-10", "month_calls": 68, "day": "2026-10-17", "day_calls": 0},
+        "adzuna": {"month": "2026-09", "month_calls": 20, "day": "2026-09-30", "day_calls": 0}}))
+    out = api_budget(tmp_path, today=date(2026, 10, 20))
+    assert out["jsearch"] == {"left": 112, "limit": 180}      # "JSearch 112 of 180 left this month"
+    assert out["adzuna"] == {"left": 20, "limit": 20}         # last month's usage does not carry over
+    assert "left this month" in (Path(__file__).resolve().parent.parent / "dashboard/static/app.js").read_text()
 
 
 def test_402_on_adzuna_stops_adzuna_but_jsearch_still_runs(monkeypatch, tmp_path):

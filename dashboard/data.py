@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlsplit
 
-from config import CAPPED_ROLE_FAMILIES, READY_STRETCH_MIN_SCORE
+from config import (ADZUNA_MONTHLY_CALLS, CAPPED_ROLE_FAMILIES, JSEARCH_MONTHLY_CALLS,
+                    READY_STRETCH_MIN_SCORE)
 from dashboard.store import PIPELINE_STATUSES, ApplicationsStore
+from scout.usage import UsageTracker
 from screener.freshness import hours_old_at_first_seen, parse_moment, posting_age_days
 
 FOLLOW_UP_DAYS = 7
@@ -122,6 +124,13 @@ def month_cost(runs: List[dict], today: date) -> float:
                      if str(r.get("timestamp", "")).startswith(prefix) and not r.get("dry_run")), 4)
 
 
+def api_budget(data_dir: Path, today: Optional[date] = None) -> Dict[str, dict]:
+    """Monthly calls left for each metered API (calendar month in IST), from api_usage.json."""
+    limits = {"jsearch": {"month": JSEARCH_MONTHLY_CALLS}, "adzuna": {"month": ADZUNA_MONTHLY_CALLS}}
+    tracker = UsageTracker(data_dir / "raw" / "api_usage.json", limits, today=today)
+    return {api: {"left": tracker.month_left(api), "limit": lim["month"]} for api, lim in limits.items()}
+
+
 def is_new(first_seen_at: Optional[str], since: Optional[str]) -> bool:
     """First seen after the baseline (the previous dashboard visit). No baseline: nothing is new."""
     seen, base = parse_moment(first_seen_at), parse_moment(since)
@@ -165,7 +174,7 @@ def build_state(data_dir: Path, store: ApplicationsStore, today: Optional[date] 
     return {"jobs": rows, "counts": counts, "runs": runs, "pipeline_statuses": list(PIPELINE_STATUSES),
             "filtered_out": [{**f, "company": str(f.get("company", ""))}
                              for f in read_json(clean / "filtered_out.json", [])],
-            "today": today.isoformat()}
+            "today": today.isoformat(), "api_budget": api_budget(data_dir)}
 
 
 def snapshot_for(data_dir: Path, job_id: str) -> Optional[dict]:

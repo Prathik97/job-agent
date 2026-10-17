@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Callable, Dict, List, Optional
 
 import requests
@@ -12,6 +13,21 @@ from scout.schema import Job
 from scout.usage import UsageTracker
 
 log = logging.getLogger(__name__)
+
+
+# Pacing: per-API time of the last call in this process. Tests replace these two.
+_last_call: Dict[str, float] = {}
+monotonic = time.monotonic
+sleep = time.sleep
+
+
+def pace(api: str, min_interval: float) -> None:
+    """Wait until at least min_interval seconds have passed since this API's previous call."""
+    if min_interval > 0 and api in _last_call:
+        wait = min_interval - (monotonic() - _last_call[api])
+        if wait > 0:
+            sleep(wait)
+    _last_call[api] = monotonic()
 
 
 class QuotaStop(Exception):
@@ -38,7 +54,7 @@ def api_get(session: requests.Session, api: str, url: str, params: dict,
 
 
 def run_queries(api: str, queries: List[Query], max_calls: int, tracker: UsageTracker,
-                fetch: Callable[[Query], List[Job]]) -> List[Job]:
+                fetch: Callable[[Query], List[Job]], min_interval: float = 0.0) -> List[Job]:
     """Run a rotating slice of queries inside the budget. Never raises: on a quota error it
     logs and returns what it has so the other scouts continue."""
     picked, new_cursor = select_queries(queries, max_calls, tracker.cursor(api))
@@ -49,6 +65,7 @@ def run_queries(api: str, queries: List[Query], max_calls: int, tracker: UsageTr
                         api, tracker.month_calls(api), api)
             break
         tracker.record(api)
+        pace(api, min_interval)
         try:
             for job in fetch(q):
                 found.setdefault(job.id, job)
