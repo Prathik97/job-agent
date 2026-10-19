@@ -74,6 +74,7 @@ def run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: Pa
 def _run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: Path,
          clean_dir: Path, usage: Path, dry_run: bool, skip_scout: bool,
          limit: Optional[int], max_cost: float, client, trigger: str) -> int:
+    started = datetime.now(timezone.utc)
     if not (dry_run or skip_scout):
         run_scouts.run(companies, jobs, profile, usage_path=usage, adzuna_weekly_only=(trigger == "scheduled"))
     elif not jobs.exists():
@@ -97,7 +98,11 @@ def _run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: P
         log.info("dry run: estimated cost $%.3f, nothing written", funnel["est_cost_total"])
         return 0
     atomic_write_json(clean_dir / "filtered_out.json", build_filtered_out(all_jobs, rules, rows))
-    stats = {**build_stats_line(layers, funnel, dry_run=False, aborted=aborted), "trigger": trigger}
+    stats = {**build_stats_line(layers, funnel, dry_run=False, aborted=aborted), "trigger": trigger,
+             # `timestamp` is when the run finished; these two show when it really started, which
+             # for a scheduled run on a sleeping Mac can be well after 8:30.
+             "started_at": started.isoformat(timespec="seconds"),
+             "duration_s": round((datetime.now(timezone.utc) - started).total_seconds())}
     with (clean_dir / "run_stats.jsonl").open("a") as fh:
         fh.write(json.dumps(stats) + "\n")
     if funnel.get("stopped_at_cost_cap"):

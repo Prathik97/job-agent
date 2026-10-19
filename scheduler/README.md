@@ -20,3 +20,15 @@ Test now without waiting: `launchctl kickstart gui/$(id -u)/com.prathikkumar.job
 
 Notes: the Mac must be on (a sleeping Mac runs the job when it wakes). macOS may ask whether
 `zsh` can access the Desktop folder the first time; if you decline, the job fails silently.
+
+## When the Mac is asleep at 8:30
+
+launchd runs a missed 8:30 job when the Mac next wakes, so a sleeping Mac gives a late run, not a
+skipped one. `run_daily.sh` wraps the run in `caffeinate -i` so it finishes once started, and
+`run_stats.jsonl` records `started_at` and `duration_s` (the `timestamp` is the finish time).
+To make the Mac wake just before 8:30 every day (needs your password, so run it yourself):
+
+    sudo pmset repeat wakeorpoweron MTWRFSU 08:29:00
+
+Cancel it with `sudo pmset repeat cancel`. On battery with the lid closed the wake is a short
+background wake; the `caffeinate` wrapper keeps the Mac up long enough to finish.

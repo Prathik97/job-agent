@@ -242,6 +242,7 @@ def test_plist_template_has_placeholder_paths_and_logs_to_scheduler_log():
     body = (SCHED / "run_daily.sh").read_text()
     assert "run_pipeline.py" in body and "--trigger scheduled" in body and "--max-cost" not in body
     assert "/dev/null" not in body
+    assert "caffeinate -i" in body and "scheduled run started" in body   # finishes once started; log shows when
 
 
 def test_generated_plist_and_logs_are_gitignored_and_real_plist_not_tracked():
@@ -262,3 +263,10 @@ def test_log_filter_redacts_keys_in_urls():
     rec = logging.LogRecord("x", logging.WARNING, "f", 1, "Retrying after error: %s", (url,), None)
     RedactFilter().filter(rec)
     assert "SECRETKEY" not in rec.getMessage() and "app_key=***" in rec.getMessage()
+
+
+def test_stats_line_records_start_time_and_duration(paths):
+    assert pipeline_go(paths, FakeClient([GOOD_S2, GOOD_S2])) == 0
+    stats = json.loads((paths.clean / "run_stats.jsonl").read_text())
+    started, finished = datetime.fromisoformat(stats["started_at"]), datetime.fromisoformat(stats["timestamp"])
+    assert started <= finished and stats["duration_s"] >= 0
