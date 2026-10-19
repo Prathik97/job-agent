@@ -100,7 +100,7 @@ def _run(*, companies: Path, profile: Path, jobs: Path, screened: Path, cache: P
     atomic_write_json(clean_dir / "filtered_out.json", build_filtered_out(all_jobs, rules, rows))
     stats = {**build_stats_line(layers, funnel, dry_run=False, aborted=aborted), "trigger": trigger,
              # `timestamp` is when the run finished; these two show when it really started, which
-             # for a scheduled run on a sleeping Mac can be well after 8:30.
+             # for a run left waiting on a sleeping Mac can be well after it was started.
              "started_at": started.isoformat(timespec="seconds"),
              "duration_s": round((datetime.now(timezone.utc) - started).total_seconds())}
     with (clean_dir / "run_stats.jsonl").open("a") as fh:
@@ -120,7 +120,7 @@ def main() -> None:
     p.add_argument("--limit", type=int, help="screen at most N jobs that survive the rules")
     p.add_argument("--max-cost", type=float, default=MAX_COST_PER_RUN,
                    help="abort if the estimated cost is above this (USD)")
-    p.add_argument("--trigger", default="cli", help="who started this run (cli, scheduled, dashboard)")
+    p.add_argument("--trigger", default="cli", help="who started this run (cli, manual, dashboard; scheduled is the optional launchd job)")
     p.add_argument("--companies", type=Path, default=Path("companies.yaml"))
     p.add_argument("--profile", type=Path, default=Path("profile.yaml"))
     p.add_argument("--data", type=Path, default=Path("data"))

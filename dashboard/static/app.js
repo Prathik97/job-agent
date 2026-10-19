@@ -602,14 +602,14 @@ function bars(title, items) {
 function budgetLine() {
   const names = { jsearch: "JSearch", adzuna: "Adzuna" };
   const parts = Object.entries(data.api_budget || {}).map(([api, b]) => names[api] + " " + b.left + " of " + b.limit + " left this month");
-  return el("div", { class: "note", id: "api-budget", text: parts.join(" · ") });
+  return el("div", { class: "note", id: "api-budget", text: parts.join(" · ") + " · Runs are manual: use Run pipeline now, or double-click Run Job Agent.command." });
 }
 
 function renderRuns() {
   const sum = o => Object.values(o || {}).reduce((a, b) => a + b, 0);
   const runs = data.runs;
   return { toolbar: [budgetLine()], draw() {
-    if (!runs.length) return swapHolder(el("div", { class: "empty", text: "No runs recorded yet." }));
+    if (!runs.length) return swapHolder(el("div", { class: "empty", text: "No runs recorded yet. Runs are manual: use Run pipeline now (top right)." }));
     const last = [...runs].reverse().find(r => !r.aborted && !r.dry_run) || runs[runs.length - 1];
     const v = last.verdicts || {};
     const table = el("div", { class: "tablewrap" }, el("table", {},

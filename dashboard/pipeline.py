@@ -2,7 +2,7 @@
 
 The estimate covers the screening of jobs already scouted; jobs the scouts newly find can add to
 it, which is why every run also has a hard cap (max_cost). The run itself is the same
-run_pipeline.run the command line and the daily schedule use.
+run_pipeline.run that "Run Job Agent.command" uses. Runs are manual; nothing runs on a schedule.
 """
 from __future__ import annotations
 

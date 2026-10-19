@@ -1,12 +1,12 @@
 # Job Agent
 
-An open source job search agent for product managers. It discovers openings, scores each one against your profile, tailors your resume per job using only facts you provide, tracks everything in a Google Sheet, and sends a daily digest on Telegram. You review and click submit. It never auto-applies.
+An open source job search agent for product managers. It discovers openings, scores each one against your profile, tailors your resume per job using only facts you provide, and shows everything in a private local dashboard. You review and click submit. It never auto-applies.
 
 ## How it works
 
 ```
-Scout  ->  Normalize  ->  Screener  ->  Tailor  ->  Tracker  ->  Daily digest
-(find)     (dedupe)       (score)       (resume)    (sheet)      (Telegram)
+Scout  ->  Normalize  ->  Screener  ->  Tailor  ->  Dashboard
+(find)     (dedupe)       (score)       (resume)    (review and apply)
 ```
 
 | Stage | What it does | Tool |
@@ -14,8 +14,7 @@ Scout  ->  Normalize  ->  Screener  ->  Tailor  ->  Tracker  ->  Daily digest
 | Scout | Reads Greenhouse, Lever and Ashby job boards, aggregator APIs, job alert emails, and Firecrawl for pages with no feed | Public JSON, Adzuna, JSearch, Gmail, Firecrawl |
 | Screener | Stage 1 drops obvious mismatches cheaply, stage 2 scores survivors out of 100 with reasons | Claude Haiku, Claude Sonnet |
 | Tailor | Picks the most relevant achievements from your master profile and drafts a resume and cover note | Claude Sonnet, Claude Opus for top picks |
-| Tracker | One row per job with score, status, link and resume version | Google Sheets |
-| Digest | Top matches delivered each morning | Telegram bot |
+| Dashboard | One row per job with score, status, link and resume version, on your own machine | Local web page |
 
 ## Safety by design
 
@@ -34,13 +33,22 @@ Scout  ->  Normalize  ->  Screener  ->  Tailor  ->  Tracker  ->  Daily digest
 6. Copy `.env.example` to `.env` and add your Anthropic API key. Other keys are added as you enable each source.
 7. Run `python smoke_test.py`. All checks should show `[ok]`.
 
+## Running it (manual)
+
+Nothing runs on its own. Two ways to start a run:
+
+- **Double-click `Run Job Agent.command`** in the project folder. It runs one full pipeline run, prints a short summary (new jobs, scored, apply, stretch, cost, calls left this month), then opens the dashboard.
+- **"Run pipeline now"** in the dashboard (top right) shows the estimated cost first and runs in the background.
+
+Both use the same safeguards: a $1.00 cost cap per run, monthly API call budgets, robots.txt checks, and no auto-submit. `Start Dashboard.command` opens the dashboard without running anything. An optional launchd schedule exists in `scheduler/` but is off and not installed.
+
 ## Cost
 
-Using Haiku for the bulk filter and Sonnet only for survivors keeps API spend low, roughly 500 to 1,500 rupees a month for daily runs. Without the two stage filter, cost can be ten times higher.
+Using Haiku for the bulk filter and Sonnet only for survivors keeps API spend low, roughly 500 to 1,500 rupees a month at a few runs a week. Without the two stage filter, cost can be ten times higher.
 
 ## Project status
 
-Scaffold and configuration are done. Scout, Screener, Tailor, Tracker and scheduling are being built in the order listed in `CLAUDE.md`.
+Scouts, Screener, Tailor and the dashboard work. Build order and remaining steps are in `CLAUDE.md`.
 
 ## Contributing
 
