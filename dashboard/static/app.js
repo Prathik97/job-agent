@@ -18,7 +18,8 @@ const ui = {
   showFlagged: false,
   onlyNew: false,
   // Score a JD: held in memory only (never in localStorage), so a pasted JD does not outlive the page.
-  jd: { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null, status: "" },
+  jd: { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null, status: "",
+    alsoTailor: true, autoTailor: false },
   filters: { all: { q: "", verdict: "", status: "", source: "", tier: "" }, filtered: { q: "", reason: "" } },
 };
 
@@ -405,7 +406,11 @@ function renderJD() {
     return el("label", { class: "jdfield" }, el("span", { class: "l", text: label }), input);
   };
   const estBtn = el("button", { class: "btn", text: "Get cost estimate" });
-  const scoreBtn = el("button", { class: "btn primary", text: "Score this JD", disabled: true });
+  const scoreLabel = () => s.alsoTailor ? "Score and tailor resume" : "Score this JD";
+  const scoreBtn = el("button", { class: "btn primary", text: scoreLabel(), disabled: true });
+  const alsoBox = el("input", { type: "checkbox", checked: s.alsoTailor, "aria-label": "Also build a tailored resume" });
+  alsoBox.addEventListener("change", () => { s.alsoTailor = alsoBox.checked; scoreBtn.textContent = scoreLabel(); showEstimate(); });
+  const alsoToggle = el("label", { class: "toggle" }, alsoBox, " Also build a tailored resume (about $0.06 to $0.12 more)");
   const clearBtn = el("button", { class: "btn", text: "Clear" });
   const status = el("div", { class: "modalstatus", role: "status" });
   const results = el("div", { class: "jdresults" });
@@ -420,7 +425,8 @@ function renderJD() {
     const parts = e.cached ? "Cached from an earlier run: no model call, $0.00."
       : "Estimated cost $" + e.est_cost.toFixed(3) + " (details $" + e.extract_cost.toFixed(3) + ", scoring $" + e.score_cost.toFixed(3) +
         "), limit $" + e.max_cost.toFixed(2) + ".";
-    status.textContent = e.over_limit ? parts + " Above the limit, so scoring is blocked." : parts;
+    const extra = s.alsoTailor && !e.over_limit ? " The resume step is estimated after scoring and runs on its own if it fits the limit." : "";
+    status.textContent = e.over_limit ? parts + " Above the limit, so scoring is blocked." : parts + extra;
     scoreBtn.disabled = e.over_limit;
   }
 
@@ -436,12 +442,12 @@ function renderJD() {
     const r = await postJD("/api/jd/score", body());
     estBtn.disabled = false;
     if (!r.ok) { status.textContent = r.json.error || "Scoring failed."; scoreBtn.disabled = !s.est || s.est.over_limit; return; }
-    s.result = r.json; s.tailor = null; s.added = null; s.est = null;
+    s.result = r.json; s.tailor = null; s.added = null; s.est = null; s.autoTailor = s.alsoTailor;
     status.textContent = "Done. Cost of this run $" + r.json.cost.toFixed(3) + (r.json.demo ? " (demo, no model called)." : ".");
     drawResult();
   });
   clearBtn.addEventListener("click", () => {
-    Object.assign(s, { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null });
+    Object.assign(s, { jd: "", company: "", title: "", location: "", url: "", est: null, result: null, tailor: null, added: null, autoTailor: false });
     showTab("jd");
   });
 
@@ -498,15 +504,7 @@ function renderJD() {
     const showFiles = t => actOut.replaceChildren(fileLinks(t.folder, t.files));
     if (s.tailor) showFiles(s.tailor);
     if (s.added) actStatus.textContent = s.added;
-    tailorBtn.addEventListener("click", async () => {
-      actStatus.textContent = "Estimating...";
-      const e = await postJD("/api/jd/tailor/estimate", { job_id: r.id });
-      if (!e.ok) { actStatus.textContent = e.json.error || "Estimate failed."; return; }
-      actStatus.textContent = "Model: " + e.json.model + ". Estimated cost $" + e.json.est_cost.toFixed(3) + " (worst case $" +
-        e.json.worst_cost.toFixed(3) + ", limit $" + e.json.max_cost.toFixed(2) + "). Click Run tailor to spend it.";
-      runBtn.hidden = false;
-    });
-    runBtn.addEventListener("click", async () => {
+    async function runTailor() {
       runBtn.disabled = true; actStatus.textContent = "Tailoring... this takes up to a minute."; actOut.replaceChildren();
       const t = await postJD("/api/jd/tailor/run", { job_id: r.id });
       runBtn.disabled = false;
@@ -515,7 +513,20 @@ function renderJD() {
       s.tailor = t.json; data.prepared[r.id] = { folder: t.json.folder, files: t.json.files };
       actStatus.textContent = "Done (" + t.json.model + ", $" + t.json.cost.toFixed(3) + "). The fact check passed.";
       runBtn.hidden = true; showFiles(t.json);
-    });
+    }
+    // auto: spend without another click only when the worst case fits the per-run limit.
+    async function tailorNow(auto) {
+      actStatus.textContent = "Estimating...";
+      const e = await postJD("/api/jd/tailor/estimate", { job_id: r.id });
+      if (!e.ok) { actStatus.textContent = e.json.error || "Estimate failed."; return; }
+      const info = "Model: " + e.json.model + ". Estimated cost $" + e.json.est_cost.toFixed(3) + " (worst case $" +
+        e.json.worst_cost.toFixed(3) + ", limit $" + e.json.max_cost.toFixed(2) + ").";
+      if (auto && e.json.worst_cost <= e.json.max_cost) { actStatus.textContent = info + " Building the resume..."; await runTailor(); return; }
+      actStatus.textContent = info + (auto ? " Above the limit for an automatic run." : "") + " Click Run tailor to spend it.";
+      runBtn.hidden = false;
+    }
+    tailorBtn.addEventListener("click", () => tailorNow(false));
+    runBtn.addEventListener("click", runTailor);
     addBtn.addEventListener("click", async () => {
       const a = await postJD("/api/jd/add", { job_id: r.id });
       if (!a.ok) { actStatus.textContent = a.json.error || "Could not add."; return; }
@@ -531,12 +542,13 @@ function renderJD() {
       el("div", { class: "jdcols section" }, list("Why it fits (top 3)", r.reasons, "No reasons returned."),
         list("Gaps (top 3)", r.gaps, "No gaps found.")),
       el("h2", { text: "JD match" }), match, actions);
+    if (s.autoTailor && !s.tailor) { s.autoTailor = false; tailorNow(true); }
   }
 
   const inputs = el("div", { class: "jdgrid" }, field("company", "Company (optional)", "taken from the JD if blank"),
     field("title", "Title (optional)", "taken from the JD if blank"), field("location", "Location (optional)", "e.g. Bengaluru"),
     field("url", "Source URL (optional, not fetched)", "https://..."));
-  return { toolbar: [estBtn, scoreBtn, clearBtn, el("span", { class: "count", text: "Nothing is fetched. The text stays on this computer." })],
+  return { toolbar: [estBtn, scoreBtn, alsoToggle, clearBtn, el("span", { class: "count", text: "Nothing is fetched. The text stays on this computer." })],
     draw() { swapHolder(el("div", { class: "jdform" }, jdBox, inputs, status, results)); showEstimate(); drawResult(); } };
 }
 

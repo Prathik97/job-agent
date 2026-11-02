@@ -371,3 +371,13 @@ def test_demo_scorer_runs_end_to_end_without_a_model(tmp_path):
     assert svc.estimate({"jd": JD})["est_cost"] == 0.0
     assert svc.tailor_run({"job_id": first["id"]})["model"] == "demo"
     assert svc.add({"job_id": first["id"]})["added"] is True
+
+
+def test_score_tab_builds_the_resume_in_the_same_step_but_only_within_the_limit():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parent.parent / "dashboard/static/app.js").read_text()
+    assert "alsoTailor: true" in js                                   # on by default
+    assert '"Score and tailor resume"' in js and "Also build a tailored resume" in js
+    assert "s.autoTailor = s.alsoTailor" in js and "tailorNow(true)" in js
+    assert "e.json.worst_cost <= e.json.max_cost" in js               # no automatic spend above the cap
+    assert "/api/jd/tailor/run" in js and "The fact check passed." in js   # same fact-checked tailor as before
